@@ -1,41 +1,8 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
 import StatusBadge from "../components/StatusBadge.vue";
-import { useDonorsStore } from "../stores/donors";
-import type { Donor, DonorInput, DonorStatus } from "../types/donors";
+import { useDonorsController } from "../controllers/useDonorsController";
 
-const store = useDonorsStore();
-const filters = reactive<{ rndCode: string; status: "" | DonorStatus; page: number }>({ rndCode: "", status: "", page: 1 });
-const pageSize = 20;
-const showForm = ref(false);
-const editing = ref<Donor | null>(null);
-const formError = ref("");
-const form = reactive<DonorInput>({ rndCode: "", originatingIpsName: "", clinicalService: "", fullName: "", documentNumber: "", status: "EN_VALORACION", bloodGroup: "", rhFactor: "" });
-const totalPages = computed(() => Math.max(1, Math.ceil(store.page.total / pageSize)));
-
-async function load() {
-  await store.fetch({ page: filters.page, pageSize, rndCode: filters.rndCode || undefined, status: filters.status || undefined });
-}
-function resetForm() {
-  Object.assign(form, { rndCode: "", originatingIpsName: "", clinicalService: "", fullName: "", documentNumber: "", status: "EN_VALORACION", bloodGroup: "", rhFactor: "" });
-  editing.value = null;
-  formError.value = "";
-}
-function openCreate() { resetForm(); showForm.value = true; }
-function openEdit(donor: Donor) { Object.assign(form, donor); editing.value = donor; formError.value = ""; showForm.value = true; }
-async function submit() {
-  formError.value = "";
-  if (!form.originatingIpsName || !form.clinicalService || !form.fullName || !form.documentNumber || (!editing.value && !form.rndCode)) {
-    formError.value = "Completa todos los campos obligatorios.";
-    return;
-  }
-  const saved = await store.save({ ...form }, editing.value?.id);
-  if (!saved) { formError.value = store.error; return; }
-  showForm.value = false;
-  await load();
-}
-function formatDate(value: string) { return new Intl.DateTimeFormat("es-CO", { dateStyle: "medium" }).format(new Date(value)); }
-onMounted(load);
+const { store, filters, form, formError, editing, showForm, totalPages, load, openCreate, openEdit, submit, formatDate } = useDonorsController();
 </script>
 
 <template>
@@ -55,7 +22,7 @@ onMounted(load);
         <div v-if="store.loading" class="py-12 text-center text-sm text-[#6b8790]">Cargando expedientes…</div>
         <table v-else class="w-full min-w-[760px] text-left text-sm">
           <thead class="border-b border-[#e5edef] text-xs uppercase tracking-wide text-[#789098]"><tr><th class="px-3 py-3 font-semibold">RND</th><th class="px-3 py-3 font-semibold">Donante</th><th class="px-3 py-3 font-semibold">IPS de origen</th><th class="px-3 py-3 font-semibold">Estado</th><th class="px-3 py-3 font-semibold">Registro</th><th class="px-3 py-3"></th></tr></thead>
-          <tbody><tr v-for="donor in store.page.items" :key="donor.id" class="border-b border-[#edf2f3] last:border-0"><td class="px-3 py-4 font-semibold text-[#236c6a]">{{ donor.rndCode }}</td><td class="px-3 py-4"><p class="font-semibold text-[#17313b]">{{ donor.fullName }}</p><p class="mt-1 text-xs text-[#789098]">{{ donor.documentNumber }}</p></td><td class="px-3 py-4 text-[#49636b]">{{ donor.originatingIpsName }}</td><td class="px-3 py-4"><StatusBadge :status="donor.status" /></td><td class="px-3 py-4 text-[#6b8790]">{{ formatDate(donor.createdAt) }}</td><td class="px-3 py-4 text-right"><button class="focus-ring rounded-lg px-3 py-2 text-xs font-semibold text-[#236c6a] hover:bg-[#eff8f6]" @click="openEdit(donor)">Editar</button></td></tr></tbody>
+          <tbody><tr v-for="donor in store.page.items" :key="donor.id" class="border-b border-[#edf2f3] last:border-0"><td class="px-3 py-4 font-semibold text-[#236c6a]">{{ donor.rndCode }}</td><td class="px-3 py-4"><p class="font-semibold text-[#17313b]">{{ donor.fullName }}</p><p class="mt-1 text-xs text-[#789098]">{{ donor.documentNumber }}</p></td><td class="px-3 py-4 text-[#49636b]">{{ donor.originatingIpsName }}</td><td class="px-3 py-4"><StatusBadge :status="donor.status" /></td><td class="px-3 py-4 text-[#6b879098]">{{ formatDate(donor.createdAt) }}</td><td class="px-3 py-4 text-right"><RouterLink class="focus-ring mr-1 rounded-lg px-3 py-2 text-xs font-semibold text-[#159c9a] hover:bg-[#eff8f6]" :to="`/expedientes/${donor.id}/documentos`">Documentos</RouterLink><RouterLink class="focus-ring mr-1 rounded-lg px-3 py-2 text-xs font-semibold text-[#1e5575] hover:bg-[#eff8f6]" :to="`/expedientes/${donor.id}/instancias`">Instancias</RouterLink><RouterLink class="focus-ring mr-1 rounded-lg px-3 py-2 text-xs font-semibold text-[#17817d] hover:bg-[#eff8f6]" :to="`/expedientes/${donor.id}/legalizacion`">Legalizar</RouterLink><button class="focus-ring rounded-lg px-3 py-2 text-xs font-semibold text-[#236c6a] hover:bg-[#eff8f6]" @click="openEdit(donor)">Editar</button></td></tr></tbody>
         </table>
         <div v-if="!store.loading && !store.page.items.length" class="py-12 text-center text-sm text-[#6b8790]">No hay expedientes para los filtros seleccionados.</div>
       </div>
