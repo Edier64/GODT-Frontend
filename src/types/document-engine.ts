@@ -32,6 +32,37 @@ export interface JsonSchema {
 
 export interface UiSchema {
   sections?: Array<{ id: string; title?: string; description?: string; fields?: string[] }>;
+  fieldConfigs?: Record<string, UiFieldConfig>;
+}
+
+export type DependencyRule =
+  | { field: string; equals?: unknown; in?: unknown[] }
+  | { all: DependencyRule[] }
+  | { any: DependencyRule[] }
+  | { not: DependencyRule };
+
+export interface DependencyFieldConfig {
+  visibleWhen?: DependencyRule;
+  enabledWhen?: DependencyRule;
+}
+
+export interface DependencyConfig {
+  fields: Record<string, DependencyFieldConfig>;
+}
+
+export interface UiTableColumn {
+  key: string;
+  label?: string;
+  width?: string;
+}
+
+export interface UiFieldConfig {
+  label?: string;
+  description?: string;
+  help?: string;
+  readonly?: boolean;
+  component?: "input" | "textarea" | "table";
+  columns?: UiTableColumn[];
 }
 
 export interface MappingConfig {
@@ -51,7 +82,7 @@ export interface TemplateVersion {
   jsonSchema: JsonSchema;
   uiSchema: UiSchema;
   mappingConfig: MappingConfig[];
-  dependencyConfig?: unknown;
+  dependencyConfig?: DependencyConfig;
   generationConfig?: Record<string, unknown>;
   publishedAt?: string | null;
   createdAt: string;

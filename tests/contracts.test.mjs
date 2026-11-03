@@ -26,6 +26,8 @@ test("frontend services preserve the verified donor, document, OCR and engine ro
   for (const route of ["/documents/${documentId}/ocr", "/ocr/jobs/${jobId}", "/ocr/fields/${fieldId}/validation"]) {
     assert.match(ocr, new RegExp(route.replace(/[${}]/g, "\\$&")));
   }
+  const ocrTypes = await source("types/ocr.ts");
+  assert.match(ocrTypes, /status: OcrJobStatus/);
   for (const route of ["/document-catalog", "/document-catalog/${templateId}/versions"]) {
     assert.match(catalog, new RegExp(route.replace(/[${}]/g, "\\$&")));
   }

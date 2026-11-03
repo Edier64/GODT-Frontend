@@ -9,11 +9,15 @@ export function useDocumentCatalogController() {
   const versions = ref<TemplateVersion[]>([]);
   const loading = ref(false);
   const error = ref("");
+  const offline = ref(false);
 
   async function load() {
     loading.value = true;
     error.value = "";
-    try { templates.value = await documentCatalogService.list(); }
+    try {
+      templates.value = await documentCatalogService.list();
+      offline.value = !navigator.onLine;
+    }
     catch (reason) { error.value = getApiError(reason); }
     finally { loading.value = false; }
   }
@@ -23,5 +27,5 @@ export function useDocumentCatalogController() {
     catch (reason) { error.value = getApiError(reason); }
   }
   onMounted(load);
-  return { templates, selected, versions, loading, error, load, select };
+  return { templates, selected, versions, loading, error, offline, load, select };
 }

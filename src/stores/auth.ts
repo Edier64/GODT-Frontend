@@ -1,5 +1,6 @@
 import { computed, ref } from "vue";
 import { defineStore } from "pinia";
+import { templateCache } from "../services/templateCache";
 
 export const useAuthStore = defineStore("auth", () => {
   const token = ref(localStorage.getItem("godt.jwtToken") ?? "");
@@ -11,6 +12,9 @@ export const useAuthStore = defineStore("auth", () => {
     else localStorage.removeItem("godt.jwtToken");
   }
 
-  function logout() { setToken(""); }
+  function logout() {
+    setToken("");
+    void templateCache.clear().catch(() => undefined);
+  }
   return { token, isAuthenticated, setToken, logout };
 });

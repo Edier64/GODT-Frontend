@@ -28,6 +28,9 @@ export interface OcrField {
 
 export interface OcrJobFieldsResponse {
   jobId: string;
+  sourceDocumentId: string;
+  status: OcrJobStatus;
+  errorCode: string | null;
   fields: OcrField[];
 }
 

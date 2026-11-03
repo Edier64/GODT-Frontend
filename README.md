@@ -48,6 +48,12 @@ disponible. No se deben usar historias clínicas reales.
 El dashboard muestra como indicador real únicamente el total paginado de
 `GET /donors`; no calcula datos clínicos ni métricas ficticias en el navegador.
 
+Las definiciones autorizadas del catálogo se guardan opcionalmente en
+IndexedDB para consulta sin conexión; no se almacenan allí donantes,
+instancias, respuestas clínicas ni documentos privados. En producción se
+registra un service worker limitado a recursos estáticos, nunca a respuestas
+de API.
+
 ## Matriz Figma vs implementación
 
 | Pantalla/concepto | Implementación |

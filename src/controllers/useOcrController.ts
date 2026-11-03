@@ -39,11 +39,19 @@ export function useOcrController(documentId: string) {
     try {
       const response = await ocrService.getJob(jobId);
       fields.value = response.fields;
-      if (job.value?.status === "EN_COLA" && response.fields.length === 0 && pollAttempts < MAX_POLL_ATTEMPTS) {
+      if (job.value) {
+        job.value = {
+          ...job.value,
+          sourceDocumentId: response.sourceDocumentId,
+          status: response.status,
+          errorCode: response.errorCode
+        };
+      }
+      if (response.status === "EN_COLA" && pollAttempts < MAX_POLL_ATTEMPTS) {
         pollAttempts += 1;
         schedulePoll(jobId);
-      } else if (job.value?.status === "EN_COLA" && response.fields.length === 0) {
-        error.value = "El backend no expone el estado actualizado del trabajo; revisa nuevamente cuando el procesamiento haya terminado.";
+      } else if (response.status === "EN_COLA") {
+        error.value = "El procesamiento continúa en cola; vuelve a consultar cuando el backend haya terminado el trabajo.";
       }
     } catch (reason) {
       error.value = getApiError(reason);
