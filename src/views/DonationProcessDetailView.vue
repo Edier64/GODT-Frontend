@@ -22,6 +22,9 @@ import type {
   ProcessCanonicalHistory,
   ConflictResolutionStrategy,
 } from "../types/canonical";
+import PdfViewerModal from "../components/PdfViewerModal.vue";
+import { documentLifecycleService } from "../services/documentLifecycle";
+import type { GeneratedPdfDocument } from "../types/document-lifecycle";
 
 const route = useRoute();
 const router = useRouter();
@@ -104,6 +107,34 @@ const processConflictForm = reactive({
   justification: "",
 });
 const resolvingProcessConflict = ref(false);
+
+const selectedProcessPdfSnapshot = ref<GeneratedPdfDocument | null>(null);
+const selectedProcessPdfDocTitle = ref("");
+const selectedProcessInstanceId = ref("");
+const showProcessPdfModal = ref(false);
+const loadingPdfSnapshot = ref(false);
+
+async function handleViewDocumentPdf(doc: ProcessDocument) {
+  if (!doc.currentInstanceId) return;
+  loadingPdfSnapshot.value = true;
+  try {
+    const snaps = await documentLifecycleService.listSnapshots(doc.currentInstanceId);
+    if (!snaps || snaps.length === 0) {
+      alert(
+        `La posición "${doc.title}" aún no cuenta con un snapshot PDF generado. Ingrese a diligenciar el documento y genere su snapshot formal.`
+      );
+      return;
+    }
+    selectedProcessPdfSnapshot.value = snaps[0];
+    selectedProcessPdfDocTitle.value = doc.title;
+    selectedProcessInstanceId.value = doc.currentInstanceId;
+    showProcessPdfModal.value = true;
+  } catch (err: any) {
+    alert(err?.message || "Error al consultar snapshot PDF.");
+  } finally {
+    loadingPdfSnapshot.value = false;
+  }
+}
 
 async function loadCanonical() {
   if (!processId.value) return;
@@ -688,19 +719,31 @@ function formatDate(iso?: string | null): string {
                 </button>
               </div>
 
-              <button
-                type="button"
-                class="px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer"
-                :class="doc.applicabilityStatus === 'NO_APLICA'
-                  ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
-                  : doc.currentInstanceId
-                  ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
-                  : 'bg-slate-900 hover:bg-slate-800 text-white'"
-                :disabled="doc.applicabilityStatus === 'NO_APLICA'"
-                @click="handleOpenOrInitiateDocument(doc)"
-              >
-                {{ doc.currentInstanceId ? "Continuar" : "Diligenciar" }}
-              </button>
+              <div class="flex items-center gap-1.5">
+                <button
+                  v-if="doc.currentInstanceId"
+                  type="button"
+                  class="px-2.5 py-1.5 rounded-lg text-xs font-semibold bg-slate-800 hover:bg-slate-900 text-white transition cursor-pointer flex items-center gap-1"
+                  title="Visualizar snapshot PDF oficial generado"
+                  @click="handleViewDocumentPdf(doc)"
+                >
+                  <span>📄</span>
+                  <span>PDF</span>
+                </button>
+                <button
+                  type="button"
+                  class="px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer"
+                  :class="doc.applicabilityStatus === 'NO_APLICA'
+                    ? 'bg-slate-100 text-slate-400 cursor-not-allowed'
+                    : doc.currentInstanceId
+                    ? 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                    : 'bg-slate-900 hover:bg-slate-800 text-white'"
+                  :disabled="doc.applicabilityStatus === 'NO_APLICA'"
+                  @click="handleOpenOrInitiateDocument(doc)"
+                >
+                  {{ doc.currentInstanceId ? "Continuar" : "Diligenciar" }}
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -1494,5 +1537,14 @@ function formatDate(iso?: string | null): string {
         </div>
       </div>
     </div>
+
+    <!-- Modal de Visualización PDF Oficial (Fase D) -->
+    <PdfViewerModal
+      v-if="showProcessPdfModal && selectedProcessPdfSnapshot"
+      :instance-id="selectedProcessInstanceId"
+      :snapshot="selectedProcessPdfSnapshot"
+      :document-title="selectedProcessPdfDocTitle"
+      @close="showProcessPdfModal = false"
+    />
   </AppLayout>
 </template>
