@@ -66,11 +66,21 @@ export interface UiFieldConfig {
 }
 
 export interface MappingConfig {
-  targetKey: string;
-  sourcePath: string;
-  sourceKind: string;
-  dataType: string;
+  targetKey?: string;
+  sourcePath?: string;
+  sourceKind?: string;
+  dataType?: string;
   writable?: boolean;
+  canonicalFieldKey?: string;
+  schemaPath?: string;
+  scope?: string;
+  bindingPolicy?: string;
+  cardinality?: string;
+  unit?: string;
+  repeatableSelectionStrategy?: string;
+  sampleContextFilter?: string;
+  homologationStatus?: string;
+  displayName?: string;
 }
 
 export interface TemplateVersion {
@@ -101,6 +111,7 @@ export interface DocumentTemplate {
 export interface DocumentProvenance {
   id?: string;
   fieldPath: string;
+  canonicalFieldKey?: string;
   sourceKind: string;
   sourceDocumentId?: string;
   ocrFieldId?: string;
@@ -128,6 +139,8 @@ export interface DocumentRevision {
 export interface DocumentInstance {
   id: string;
   donorId: string;
+  processId?: string | null;
+  processDocumentId?: string | null;
   templateId: string;
   templateVersionId: string;
   documentCode: string;

@@ -29,7 +29,7 @@ export function evaluateDependency(
   if ("not" in rule) return !evaluateDependency(rule.not, values);
   const actual = readPath(values, rule.field);
   if ("equals" in rule) return Object.is(actual, rule.equals);
-  if ("in" in rule) return rule.in.some((option) => Object.is(actual, option));
+  if ("in" in rule && Array.isArray(rule.in)) return rule.in.some((option) => Object.is(actual, option));
   return Boolean(actual);
 }
 
