@@ -30,6 +30,8 @@ const form = reactive({
   signerDocumentNumber: "",
   signerProfessionalId: "",
   signatureData: "",
+  attestationText: "Atestiguo bajo juramento y responsabilidad profesional que he revisado el contenido de este documento y confirmo la veracidad de la información clínica registrada en el proceso de donación.",
+  acceptAttestation: true,
 });
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
@@ -118,6 +120,16 @@ async function handleSubmit() {
     return;
   }
 
+  if (form.signatureType === "DIGITAL_CERTIFICADA") {
+    error.value = "La firma digital certificada no está habilitada operativamente. Requiere integración PKI acreditada por la ONAC (Ley 527/1999).";
+    return;
+  }
+
+  if (form.signatureType === "ATESTACION_USUARIO" && !form.acceptAttestation) {
+    error.value = "Debe aceptar la declaración de atestación bajo juramento.";
+    return;
+  }
+
   if (form.signatureType === "DIBUJADA_UI" && !form.signatureData) {
     error.value = "Por favor dibuje la firma en el recuadro antes de confirmar.";
     return;
@@ -131,6 +143,7 @@ async function handleSubmit() {
       participantId: form.participantId || undefined,
       signatureType: form.signatureType,
       signatureData: form.signatureData || undefined,
+      attestationText: form.signatureType === "ATESTACION_USUARIO" ? form.attestationText : undefined,
       signerName: form.signerName.trim(),
       signerRole: form.signerRole.trim(),
       signerDocumentType: form.signerDocumentType,
@@ -345,23 +358,45 @@ onMounted(() => {
               <span>Manuscrita Presencial</span>
             </label>
 
-            <label
-              class="flex cursor-pointer items-center gap-2 rounded-lg border p-2.5"
-              :class="
-                form.signatureType === 'DIGITAL_CERTIFICADA'
-                  ? 'border-teal-600 bg-teal-50/60 font-semibold text-teal-900'
-                  : 'border-slate-200 hover:bg-slate-50'
-              "
+            <div
+              class="flex cursor-not-allowed items-center justify-between rounded-lg border border-slate-200 bg-slate-100 p-2.5 opacity-70"
+              title="No habilitada operativamente. Requiere integración PKI con entidad de certificación acreditada por la ONAC (Ley 527/1999)"
             >
-              <input
-                v-model="form.signatureType"
-                type="radio"
-                value="DIGITAL_CERTIFICADA"
-                class="text-teal-600"
-              />
-              <span>Digital Certificada</span>
+              <div class="flex items-center gap-2">
+                <input
+                  type="radio"
+                  disabled
+                  class="text-slate-400"
+                />
+                <span class="text-slate-500 line-through">Digital Certificada</span>
+              </div>
+              <span class="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-800">
+                Requiere ONAC
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Declaración y Atestación Bajo Juramento (para ATESTACION_USUARIO) -->
+        <div
+          v-if="form.signatureType === 'ATESTACION_USUARIO'"
+          class="rounded-xl border border-teal-200 bg-teal-50/70 p-3.5 space-y-2 text-xs"
+        >
+          <div class="flex items-start gap-2.5">
+            <input
+              id="attestCheckbox"
+              v-model="form.acceptAttestation"
+              type="checkbox"
+              class="mt-0.5 h-4 w-4 rounded border-teal-400 text-teal-700 focus:ring-teal-500"
+            />
+            <label for="attestCheckbox" class="text-slate-800 font-medium leading-relaxed">
+              <strong>Declaración de Atestación Clínica:</strong>
+              "{{ form.attestationText }}"
             </label>
           </div>
+          <p class="text-[10px] text-teal-800 italic pl-6.5">
+            ⚖️ Aviso legal: Esta atestación electrónica vincula su usuario en sesión al documento inmutable conforme a la política GODT Regional 3. No constituye firma digital PKI (Ley 527 de 1999).
+          </p>
         </div>
 
         <!-- Canvas interactivo para firma dibujada -->

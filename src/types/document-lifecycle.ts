@@ -54,6 +54,12 @@ export interface DocumentSignature {
   signedAt: string;
   ipAddress?: string | null;
   verificationHash: string;
+  evidenceData?: {
+    attestationText?: string;
+    attestationDigest?: string;
+    legalNotice?: string;
+    [key: string]: unknown;
+  } | null;
   signerUser?: {
     id: string;
     fullName: string;
@@ -101,6 +107,14 @@ export interface CustodyEvent {
   temperatureCelsius?: number | null;
   containerSealNumber?: string | null;
   integrityVerified: boolean;
+  verifiedById?: string | null;
+  verifiedAt?: string | null;
+  verifierNotes?: string | null;
+  verifiedBy?: {
+    id: string;
+    fullName: string;
+    email: string;
+  } | null;
   notes?: string | null;
   recordedByUserId?: string | null;
   recordedAt: string;
@@ -121,6 +135,7 @@ export interface SignSnapshotPayload {
   participantId?: string;
   signatureType: SignatureType;
   signatureData?: string;
+  attestationText?: string;
   signerName?: string;
   signerRole?: string;
   signerDocumentType?: string;
@@ -139,5 +154,10 @@ export interface AppendCustodyEventPayload {
   temperatureCelsius?: number;
   containerSealNumber?: string;
   integrityVerified?: boolean;
+  verifierNotes?: string;
   notes?: string;
+}
+
+export interface ReopenDocumentPayload {
+  justification: string;
 }
