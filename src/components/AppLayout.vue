@@ -35,6 +35,7 @@ onBeforeUnmount(() => window.removeEventListener("godt:session-expired", handleS
       <nav aria-label="Navegación principal" class="app-scrollbar flex gap-2 overflow-x-auto p-4 lg:block lg:space-y-1">
         <p class="px-4 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/35">Workspace</p>
         <RouterLink active-class="bg-[#1e5575] text-white shadow-sm" class="focus-ring block rounded-lg px-4 py-3 text-sm text-white/65 transition hover:bg-white/10 hover:text-white" to="/dashboard">Resumen</RouterLink>
+        <RouterLink active-class="bg-[#1e5575] text-white shadow-sm" class="focus-ring block rounded-lg px-4 py-3 text-sm text-white/65 transition hover:bg-white/10 hover:text-white" to="/procesos">Procesos de Donación</RouterLink>
         <RouterLink active-class="bg-[#1e5575] text-white shadow-sm" class="focus-ring block rounded-lg px-4 py-3 text-sm text-white/65 transition hover:bg-white/10 hover:text-white" to="/expedientes">Expedientes</RouterLink>
         <RouterLink active-class="bg-[#1e5575] text-white shadow-sm" class="focus-ring block rounded-lg px-4 py-3 text-sm text-white/65 transition hover:bg-white/10 hover:text-white" to="/catalogo-documental">Catálogo documental</RouterLink>
         <RouterLink active-class="bg-[#1e5575] text-white shadow-sm" class="focus-ring block rounded-lg px-4 py-3 text-sm text-white/65 transition hover:bg-white/10 hover:text-white" to="/expedientes">Documentación clínica</RouterLink>

@@ -11,6 +11,8 @@ import ReviewCenterView from "./views/ReviewCenterView.vue";
 import LegalizationView from "./views/LegalizationView.vue";
 import DocumentFinalizationView from "./views/DocumentFinalizationView.vue";
 import AccessView from "./views/AccessView.vue";
+import DonationProcessListView from "./views/DonationProcessListView.vue";
+import DonationProcessDetailView from "./views/DonationProcessDetailView.vue";
 
 const router = createRouter({
   history: createWebHistory(),
@@ -18,6 +20,8 @@ const router = createRouter({
     { path: "/", redirect: "/dashboard" },
     { path: "/acceso", component: AccessView, meta: { public: true } },
     { path: "/dashboard", component: DashboardView },
+    { path: "/procesos", component: DonationProcessListView },
+    { path: "/procesos/:processId", component: DonationProcessDetailView },
     { path: "/expedientes", component: DonorsView },
     { path: "/expedientes/:donorId/documentos", component: DocumentsView },
     { path: "/expedientes/:donorId/documentos/:documentId/ocr", component: OcrView },
