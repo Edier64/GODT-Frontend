@@ -46,6 +46,9 @@ const selectedSnapshot = ref<GeneratedPdfDocument | null>(null);
 const showPdfModal = ref(false);
 const showSignatureModal = ref(false);
 const showParticipantsDrawer = ref(false);
+const showReopenModal = ref(false);
+const reopenJustification = ref("");
+const reopening = ref(false);
 const lifecycleLoading = ref(false);
 const lifecycleMessage = ref("");
 const lifecycleError = ref("");
@@ -304,6 +307,30 @@ async function handleReleaseLifecycle() {
   }
 }
 
+async function handleReopenLifecycle() {
+  if (reopenJustification.value.trim().length < 10) {
+    alert("Se requiere una justificación clínica o administrativa de al menos 10 caracteres.");
+    return;
+  }
+  reopening.value = true;
+  lifecycleError.value = "";
+  try {
+    await documentLifecycleService.reopen(instanceId, {
+      justification: reopenJustification.value.trim(),
+    });
+    lifecycleMessage.value =
+      "Documento retornado a BORRADOR con éxito por reapertura técnica justificada. Snapshots previos invalidados (SUPERSEDED).";
+    showReopenModal.value = false;
+    reopenJustification.value = "";
+    await load();
+  } catch (err: any) {
+    lifecycleError.value =
+      err?.response?.data?.message || err?.message || "Error al solicitar la reapertura técnica.";
+  } finally {
+    reopening.value = false;
+  }
+}
+
 function openPdfViewer(snap?: GeneratedPdfDocument) {
   selectedSnapshot.value = snap || latestSnapshot.value;
   if (selectedSnapshot.value) {
@@ -519,6 +546,24 @@ onMounted(load);
             <span>🚀</span>
             <span>{{ lifecycleLoading ? "Liberando..." : "Liberar en Expediente Oficial" }}</span>
           </button>
+
+          <button
+            v-if="['COMPLETADO', 'PENDIENTE_FIRMAS', 'FIRMADO'].includes(instance?.status || '')"
+            type="button"
+            class="rounded-lg border border-amber-300 bg-amber-50 px-3.5 py-1.5 text-xs font-semibold text-amber-800 hover:bg-amber-100 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+            :disabled="lifecycleLoading"
+            @click="showReopenModal = true"
+          >
+            <span>↩️</span>
+            <span>Reapertura Técnica</span>
+          </button>
+
+          <span
+            v-if="instance?.status === 'LIBERADO'"
+            class="rounded-md bg-teal-50 px-3 py-1.5 text-xs font-bold text-teal-800 border border-teal-200 flex items-center gap-1.5"
+          >
+            🔒 Expediente Sellado e Inmutable
+          </span>
         </div>
       </div>
 
@@ -819,6 +864,68 @@ onMounted(load);
             @click="handleResolveConflict"
           >
             {{ resolvingConflict ? "Aplicando resolución…" : "Confirmar Resolución" }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal de Reapertura Técnica Justificada -->
+    <div
+      v-if="showReopenModal"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 p-4 backdrop-blur-xs"
+      @click.self="showReopenModal = false"
+    >
+      <div class="w-full max-w-lg rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col">
+        <div class="flex items-center justify-between border-b border-slate-200 bg-amber-50 px-6 py-4">
+          <div class="flex items-center gap-2 text-amber-900 font-bold">
+            <span>⚠️</span>
+            <h3 class="text-base">Reapertura Técnica de Documento</h3>
+          </div>
+          <button
+            type="button"
+            class="rounded-lg p-2 text-slate-400 hover:bg-slate-200"
+            @click="showReopenModal = false"
+          >
+            ✕
+          </button>
+        </div>
+        <div class="p-6 space-y-4 text-xs">
+          <div class="rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-amber-900 space-y-1">
+            <p class="font-bold">Advertencia de Trazabilidad e Integridad:</p>
+            <p>Al reabrir el documento, el estado regresará a <strong>BORRADOR</strong>. Los snapshots previos quedarán invalidados (<strong>SUPERSEDED</strong>) y las firmas no se transferirán al nuevo borrador, quedando preservadas únicamente como evidencia histórica.</p>
+          </div>
+
+          <div class="space-y-1">
+            <label class="block font-semibold text-slate-700">
+              Justificación Clínica / Administrativa Obligatoria (Mínimo 10 caracteres) *
+            </label>
+            <textarea
+              v-model="reopenJustification"
+              rows="3"
+              class="w-full rounded-lg border border-slate-300 p-2.5 text-xs text-slate-800 focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
+              placeholder="Especifique el motivo clínico o administrativo que fundamenta la reapertura técnica..."
+            ></textarea>
+            <p class="text-[11px] text-slate-400 text-right">
+              {{ reopenJustification.length }} / 10 caracteres mínimos
+            </p>
+          </div>
+        </div>
+        <div class="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-3">
+          <button
+            type="button"
+            class="rounded-lg px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200"
+            :disabled="reopening"
+            @click="showReopenModal = false"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            class="rounded-lg bg-amber-600 px-5 py-2 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+            :disabled="reopening || reopenJustification.trim().length < 10"
+            @click="handleReopenLifecycle"
+          >
+            {{ reopening ? "Autorizando reapertura..." : "Confirmar Reapertura Técnica" }}
           </button>
         </div>
       </div>

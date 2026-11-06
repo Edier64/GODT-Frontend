@@ -34,7 +34,8 @@ const form = reactive({
   eventTimestamp: new Date().toISOString().slice(0, 16),
   temperatureCelsius: 4.0,
   containerSealNumber: "",
-  integrityVerified: true,
+  integrityVerified: false,
+  verifierNotes: "",
   notes: "",
 });
 
@@ -70,11 +71,13 @@ async function handleAppendEvent() {
       temperatureCelsius: Number(form.temperatureCelsius),
       containerSealNumber: form.containerSealNumber.trim() || undefined,
       integrityVerified: form.integrityVerified,
+      verifierNotes: form.verifierNotes.trim() || undefined,
       notes: form.notes.trim() || undefined,
     });
 
     showAddModal.value = false;
     form.containerSealNumber = "";
+    form.verifierNotes = "";
     form.notes = "";
     await loadEvents();
   } catch (err: any) {
@@ -174,10 +177,17 @@ onMounted(() => {
                 :class="
                   ev.integrityVerified
                     ? 'bg-emerald-100 text-emerald-800'
-                    : 'bg-rose-100 text-rose-800'
+                    : 'bg-amber-100 text-amber-800'
                 "
               >
-                {{ ev.integrityVerified ? 'Conforme' : 'Observado' }}
+                {{ ev.integrityVerified ? '✓ Verificado' : 'Pendiente' }}
+              </span>
+              <span
+                v-if="ev.verifiedBy || ev.verifiedAt"
+                class="block text-[10px] text-slate-400 mt-0.5 font-normal"
+              >
+                {{ ev.verifiedBy?.fullName ? `por ${ev.verifiedBy.fullName}` : 'Verificado' }}
+                {{ ev.verifiedAt ? `(${new Date(ev.verifiedAt).toLocaleDateString()})` : '' }}
               </span>
             </td>
           </tr>
@@ -295,8 +305,20 @@ onMounted(() => {
                 class="h-4 w-4 rounded text-teal-600"
               />
               <label for="intVer" class="text-xs font-semibold text-slate-700 cursor-pointer">
-                Integridad y cadena de frío verificadas conforme
+                Integridad física y cadena de frío verificadas
               </label>
+            </div>
+
+            <div v-if="form.integrityVerified" class="col-span-2">
+              <label class="block font-semibold text-teal-800 mb-1">
+                Notas y Constancia del Verificador de Integridad *
+              </label>
+              <input
+                v-model="form.verifierNotes"
+                type="text"
+                class="w-full rounded-lg border border-teal-300 bg-teal-50/40 px-3 py-2 text-xs text-slate-800"
+                placeholder="Ej: Contenedor con precinto intacto y temperatura conforme al desembalaje"
+              />
             </div>
 
             <div class="col-span-2">

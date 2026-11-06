@@ -47,6 +47,24 @@ export const documentLifecycleService = {
     return data;
   },
 
+  async reopen(
+    instanceId: string,
+    payload: { justification: string },
+  ): Promise<{
+    id: string;
+    documentCode: string;
+    status: string;
+    previousStatus: string;
+    reopenedAt: string;
+    justification: string;
+  }> {
+    const { data } = await api.post(
+      `/document-instances/${instanceId}/lifecycle/reopen`,
+      payload,
+    );
+    return data;
+  },
+
   async listParticipants(instanceId: string): Promise<DocumentParticipant[]> {
     const { data } = await api.get<DocumentParticipant[]>(
       `/document-instances/${instanceId}/lifecycle/participants`,
