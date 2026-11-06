@@ -2,8 +2,13 @@
 import { computed, onMounted, reactive, ref } from "vue";
 import { useRoute } from "vue-router";
 import DynamicField from "../components/DynamicField.vue";
+import PdfViewerModal from "../components/PdfViewerModal.vue";
+import DocumentSignatureModal from "../components/DocumentSignatureModal.vue";
+import DocumentParticipantsDrawer from "../components/DocumentParticipantsDrawer.vue";
+import CustodyEventSection from "../components/CustodyEventSection.vue";
 import { getApiError } from "../services/api";
 import { documentInstancesService } from "../services/documentInstances";
+import { documentLifecycleService } from "../services/documentLifecycle";
 import { useDocumentInstancesController } from "../controllers/useDocumentInstancesController";
 import { useDynamicFormController } from "../controllers/useDynamicFormController";
 import {
@@ -16,6 +21,10 @@ import type {
   ConflictResolutionStrategy,
   PropagationResult,
 } from "../types/canonical";
+import type {
+  DocumentParticipant,
+  GeneratedPdfDocument,
+} from "../types/document-lifecycle";
 
 const route = useRoute();
 const donorId = String(route.params.donorId);
@@ -29,6 +38,27 @@ const propagationSuccessMessage = ref("");
 const controller = useDocumentInstancesController(donorId);
 const form = ref<ReturnType<typeof useDynamicFormController> | null>(null);
 const fields = computed<Record<string, string>>(() => form.value?.errors ?? {});
+
+// Ciclo de vida y Phase D
+const participants = ref<DocumentParticipant[]>([]);
+const snapshots = ref<GeneratedPdfDocument[]>([]);
+const selectedSnapshot = ref<GeneratedPdfDocument | null>(null);
+const showPdfModal = ref(false);
+const showSignatureModal = ref(false);
+const showParticipantsDrawer = ref(false);
+const lifecycleLoading = ref(false);
+const lifecycleMessage = ref("");
+const lifecycleError = ref("");
+
+const isDocumentLocked = computed(() =>
+  ["COMPLETADO", "PENDIENTE_FIRMAS", "FIRMADO", "LIBERADO"].includes(
+    instance.value?.status || "",
+  ),
+);
+const latestSnapshot = computed(() =>
+  snapshots.value.length > 0 ? snapshots.value[0] : null,
+);
+const isAnexo8 = computed(() => instance.value?.documentCode === "ANEXO_8");
 
 // Estado de conflictos canónicos
 const detectedConflicts = ref<CanonicalConflict[]>([]);
@@ -48,6 +78,19 @@ const mappedCanonicalFields = computed(() => {
   );
 });
 
+async function loadLifecycleData() {
+  try {
+    const [partList, snapList] = await Promise.all([
+      documentLifecycleService.listParticipants(instanceId).catch(() => []),
+      documentLifecycleService.listSnapshots(instanceId).catch(() => []),
+    ]);
+    participants.value = partList;
+    snapshots.value = snapList;
+  } catch (e) {
+    console.warn("Error cargando datos de ciclo de vida:", e);
+  }
+}
+
 async function load() {
   try {
     instance.value = await documentInstancesService.get(instanceId);
@@ -59,6 +102,8 @@ async function load() {
     );
     currentForm.setProvenance(instance.value.currentRevision?.provenance ?? []);
     form.value = currentForm;
+
+    await loadLifecycleData();
   } catch (reason) {
     loadError.value = getApiError(reason);
   }
@@ -76,6 +121,11 @@ function getNestedValue(obj: Record<string, unknown>, path: string): unknown {
 }
 
 async function save(propagate = true) {
+  if (isDocumentLocked.value) {
+    alert("El documento se encuentra cerrado e inmutable. No se admiten modificaciones.");
+    return;
+  }
+
   if (!form.value || !form.value.validate()) return;
   saving.value = true;
   message.value = "";
@@ -145,7 +195,6 @@ async function save(propagate = true) {
   }
 
   saving.value = false;
-  // Recargar instancia para refrescar procedencias actualizadas
   await load();
 }
 
@@ -188,9 +237,110 @@ async function handleResolveConflict() {
   }
 }
 
-async function validateInstance() {
-  const result = await controller.validate(instanceId);
-  if (result) message.value = "Validación ejecutada. El estado final proviene del backend.";
+// Métodos de ciclo de vida Fase D
+async function handleValidateLifecycle() {
+  lifecycleLoading.value = true;
+  lifecycleError.value = "";
+  lifecycleMessage.value = "";
+  try {
+    const res = await documentLifecycleService.validate(instanceId);
+    lifecycleMessage.value = `Documento validado formalmente (Estado: ${res.status}).`;
+    await load();
+  } catch (err: any) {
+    lifecycleError.value =
+      err?.response?.data?.message || err?.message || "Error al validar documento.";
+  } finally {
+    lifecycleLoading.value = false;
+  }
+}
+
+async function handleCompleteLifecycle() {
+  lifecycleLoading.value = true;
+  lifecycleError.value = "";
+  lifecycleMessage.value = "";
+  try {
+    const res = await documentLifecycleService.complete(instanceId);
+    lifecycleMessage.value = `Documento completado con éxito (Estado: ${res.status}). Firmantes requeridos: ${res.mandatorySignersCount}.`;
+    await load();
+  } catch (err: any) {
+    lifecycleError.value =
+      err?.response?.data?.message || err?.message || "Error al completar documento.";
+  } finally {
+    lifecycleLoading.value = false;
+  }
+}
+
+async function handleGenerateSnapshot() {
+  lifecycleLoading.value = true;
+  lifecycleError.value = "";
+  lifecycleMessage.value = "";
+  try {
+    const snap = await documentLifecycleService.generateSnapshot(instanceId);
+    selectedSnapshot.value = snap;
+    showPdfModal.value = true;
+    lifecycleMessage.value = `Snapshot oficial v${snap.versionNumber} generado (SHA-256: ${snap.sha256Hash.slice(0, 16)}...).`;
+    await load();
+  } catch (err: any) {
+    lifecycleError.value =
+      err?.response?.data?.message || err?.message || "Error al generar snapshot documental.";
+  } finally {
+    lifecycleLoading.value = false;
+  }
+}
+
+async function handleReleaseLifecycle() {
+  lifecycleLoading.value = true;
+  lifecycleError.value = "";
+  lifecycleMessage.value = "";
+  try {
+    const res = await documentLifecycleService.release(instanceId);
+    lifecycleMessage.value = `Documento liberado exitosamente en el expediente del proceso (Estado: ${res.status}).`;
+    await load();
+  } catch (err: any) {
+    lifecycleError.value =
+      err?.response?.data?.message || err?.message || "Error al liberar documento.";
+  } finally {
+    lifecycleLoading.value = false;
+  }
+}
+
+function openPdfViewer(snap?: GeneratedPdfDocument) {
+  selectedSnapshot.value = snap || latestSnapshot.value;
+  if (selectedSnapshot.value) {
+    showPdfModal.value = true;
+  }
+}
+
+function openSignatureModal(snap?: GeneratedPdfDocument) {
+  selectedSnapshot.value = snap || latestSnapshot.value;
+  if (selectedSnapshot.value) {
+    showSignatureModal.value = true;
+  }
+}
+
+function onSigned() {
+  showSignatureModal.value = false;
+  lifecycleMessage.value = "Firma estampada exitosamente sobre el snapshot inmutable.";
+  load();
+}
+
+function getStatusBadgeClass(status?: string) {
+  switch (status) {
+    case "BORRADOR":
+      return "bg-slate-100 text-slate-700 border-slate-300";
+    case "VALIDADO":
+      return "bg-blue-100 text-blue-800 border-blue-300";
+    case "COMPLETADO":
+      return "bg-amber-100 text-amber-800 border-amber-300";
+    case "PENDIENTE_FIRMAS":
+      return "bg-purple-100 text-purple-800 border-purple-300";
+    case "FIRMADO":
+      return "bg-emerald-100 text-emerald-800 border-emerald-300";
+    case "LIBERADO":
+      return "bg-teal-100 text-teal-800 border-teal-300";
+    default:
+      return "bg-slate-100 text-slate-700 border-slate-200";
+  }
 }
 
 onMounted(load);
@@ -198,6 +348,7 @@ onMounted(load);
 
 <template>
   <section class="max-w-6xl mx-auto pb-12">
+    <!-- Navegación Superior -->
     <RouterLink
       class="text-xs font-semibold text-[#159c9a] hover:underline"
       :to="`/expedientes/${donorId}/instancias`"
@@ -205,30 +356,201 @@ onMounted(load);
       ← Volver a instancias
     </RouterLink>
 
+    <!-- Encabezado de Instancia -->
     <div class="mt-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
       <div>
-        <p class="text-sm font-semibold text-[#159c9a]">Formulario dinámico</p>
-        <h2 class="mt-1 text-3xl font-bold tracking-tight text-[#17313b]">
-          {{ instance?.documentCode ?? "Instancia documental" }}
-        </h2>
+        <p class="text-sm font-semibold text-[#159c9a]">Gestión Documental GODT — Ciclo de Vida</p>
+        <div class="flex items-center gap-3 mt-1">
+          <h2 class="text-3xl font-bold tracking-tight text-[#17313b]">
+            {{ instance?.documentCode ?? "Instancia documental" }}
+          </h2>
+          <span
+            v-if="instance"
+            class="rounded-full border px-3 py-1 text-xs font-bold uppercase tracking-wider"
+            :class="getStatusBadgeClass(instance.status)"
+          >
+            {{ instance.status }}
+          </span>
+        </div>
         <p class="mt-2 text-sm text-[#6b8790]">
-          La estructura se interpreta desde la versión exacta utilizada y sincroniza datos canónicos con el proceso.
+          Estructura oficial versionada, marcadores canónicos sincronizados y ciclo de vida legal.
         </p>
       </div>
-      <div class="flex items-center gap-2">
+
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          class="focus-ring rounded-lg border border-teal-600 bg-white px-3 py-2 text-xs font-semibold text-teal-800 hover:bg-teal-50 cursor-pointer shadow-xs flex items-center gap-1.5"
+          @click="showParticipantsDrawer = true"
+        >
+          <span>👥</span>
+          <span>Participantes ({{ participants.length }})</span>
+        </button>
+
+        <button
+          v-if="latestSnapshot"
+          type="button"
+          class="focus-ring rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-900 cursor-pointer shadow-xs flex items-center gap-1.5"
+          @click="openPdfViewer()"
+        >
+          <span>📄</span>
+          <span>Ver PDF Oficial (v{{ latestSnapshot.versionNumber }})</span>
+        </button>
+
         <RouterLink
           v-if="instance"
-          class="focus-ring rounded-lg border border-[#159c9a] px-3 py-2 text-xs font-semibold text-[#159c9a]"
+          class="focus-ring rounded-lg border border-[#159c9a] px-3 py-2 text-xs font-semibold text-[#159c9a] hover:bg-teal-50"
           :to="`/expedientes/${donorId}/instancias/${instance.id}/revision`"
         >
           Centro de revisión
         </RouterLink>
-        <span
-          v-if="instance"
-          class="rounded-full bg-[#edf4f6] px-3 py-2 text-xs font-semibold text-[#1e5575]"
-        >
-          {{ instance.status }}
-        </span>
+      </div>
+    </div>
+
+    <!-- Barra de Transición del Ciclo de Vida (Fase D) -->
+    <div class="mt-6 rounded-2xl border border-slate-200 bg-white p-4 shadow-xs">
+      <div class="flex flex-col md:flex-row items-center justify-between gap-4">
+        <!-- Pipeline visual -->
+        <div class="flex flex-wrap items-center gap-1.5 text-xs font-semibold">
+          <span
+            class="rounded-md px-2 py-1"
+            :class="instance?.status === 'BORRADOR' ? 'bg-slate-700 text-white' : 'text-slate-400'"
+          >
+            1. Borrador
+          </span>
+          <span class="text-slate-300">→</span>
+          <span
+            class="rounded-md px-2 py-1"
+            :class="instance?.status === 'VALIDADO' ? 'bg-blue-600 text-white' : 'text-slate-400'"
+          >
+            2. Validado
+          </span>
+          <span class="text-slate-300">→</span>
+          <span
+            class="rounded-md px-2 py-1"
+            :class="instance?.status === 'COMPLETADO' ? 'bg-amber-600 text-white' : 'text-slate-400'"
+          >
+            3. Completado
+          </span>
+          <span class="text-slate-300">→</span>
+          <span
+            class="rounded-md px-2 py-1"
+            :class="instance?.status === 'PENDIENTE_FIRMAS' ? 'bg-purple-600 text-white' : 'text-slate-400'"
+          >
+            4. Firmas
+          </span>
+          <span class="text-slate-300">→</span>
+          <span
+            class="rounded-md px-2 py-1"
+            :class="instance?.status === 'FIRMADO' ? 'bg-emerald-600 text-white' : 'text-slate-400'"
+          >
+            5. Firmado
+          </span>
+          <span class="text-slate-300">→</span>
+          <span
+            class="rounded-md px-2 py-1"
+            :class="instance?.status === 'LIBERADO' ? 'bg-teal-600 text-white' : 'text-slate-400'"
+          >
+            6. Liberado
+          </span>
+        </div>
+
+        <!-- Botones de acción del ciclo de vida -->
+        <div class="flex flex-wrap items-center gap-2">
+          <button
+            v-if="instance?.status === 'BORRADOR'"
+            type="button"
+            class="rounded-lg bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 cursor-pointer disabled:opacity-50"
+            :disabled="lifecycleLoading"
+            @click="handleValidateLifecycle"
+          >
+            {{ lifecycleLoading ? "Validando..." : "✓ Validar Reglas" }}
+          </button>
+
+          <button
+            v-if="instance?.status === 'VALIDADO'"
+            type="button"
+            class="rounded-lg bg-amber-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 cursor-pointer disabled:opacity-50"
+            :disabled="lifecycleLoading"
+            @click="handleCompleteLifecycle"
+          >
+            {{ lifecycleLoading ? "Completando..." : "🏁 Marcar como Completado" }}
+          </button>
+
+          <button
+            v-if="instance?.status === 'COMPLETADO' || instance?.status === 'VALIDADO'"
+            type="button"
+            class="rounded-lg bg-purple-700 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-purple-800 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+            :disabled="lifecycleLoading"
+            @click="handleGenerateSnapshot"
+          >
+            <span>📄</span>
+            <span>{{ lifecycleLoading ? "Generando..." : "Generar Snapshot PDF Oficial" }}</span>
+          </button>
+
+          <button
+            v-if="instance?.status === 'PENDIENTE_FIRMAS'"
+            type="button"
+            class="rounded-lg bg-teal-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+            :disabled="lifecycleLoading"
+            @click="openSignatureModal()"
+          >
+            <span>✍️</span>
+            <span>Estampar Firma Oficial</span>
+          </button>
+
+          <button
+            v-if="instance?.status === 'PENDIENTE_FIRMAS'"
+            type="button"
+            class="rounded-lg border border-purple-300 bg-purple-50 px-3 py-1.5 text-xs font-semibold text-purple-800 hover:bg-purple-100 cursor-pointer disabled:opacity-50"
+            :disabled="lifecycleLoading"
+            @click="handleGenerateSnapshot"
+          >
+            Regenerar Snapshot
+          </button>
+
+          <button
+            v-if="instance?.status === 'FIRMADO'"
+            type="button"
+            class="rounded-lg bg-emerald-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 cursor-pointer disabled:opacity-50 flex items-center gap-1.5"
+            :disabled="lifecycleLoading"
+            @click="handleReleaseLifecycle"
+          >
+            <span>🚀</span>
+            <span>{{ lifecycleLoading ? "Liberando..." : "Liberar en Expediente Oficial" }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Feedback de ciclo de vida -->
+      <div
+        v-if="lifecycleMessage"
+        class="mt-3 rounded-xl bg-teal-50 border border-teal-200 p-2.5 text-xs text-teal-900 flex items-center gap-2"
+      >
+        <span>✓</span>
+        <span>{{ lifecycleMessage }}</span>
+      </div>
+      <div
+        v-if="lifecycleError"
+        class="mt-3 rounded-xl bg-rose-50 border border-rose-200 p-2.5 text-xs text-rose-800 flex items-center gap-2"
+      >
+        <span>⚠️</span>
+        <span>{{ lifecycleError }}</span>
+      </div>
+    </div>
+
+    <!-- Banner Informativo de Bloqueo Inmutable (Fase D) -->
+    <div
+      v-if="isDocumentLocked"
+      class="mt-4 rounded-xl border border-amber-300 bg-amber-50/80 p-4 text-xs text-amber-900 flex items-start gap-3"
+    >
+      <span class="text-xl">🔒</span>
+      <div class="space-y-0.5">
+        <strong class="font-bold text-amber-950">Documento Inmutable y Cerrado a Escritura:</strong>
+        <p>
+          Este documento se encuentra en estado <strong class="uppercase">{{ instance?.status }}</strong>.
+          Sus campos y respuestas están protegidos contra edición para garantizar la inmutabilidad legal de los snapshots PDF generados y sus firmas electrónicas correspondientes.
+        </p>
       </div>
     </div>
 
@@ -250,6 +572,7 @@ onMounted(load);
       {{ loadError }}
     </p>
 
+    <!-- Formulario Dinámico -->
     <div v-if="version && form" class="mt-6 rounded-2xl border border-[#dce6eb] bg-white p-5 sm:p-8 shadow-xs">
       <div class="mb-7 border-b border-[#edf2f3] pb-5">
         <div class="flex items-start justify-between gap-3">
@@ -287,6 +610,7 @@ onMounted(load);
             :schema="version.jsonSchema.properties?.[key] ?? {}"
             :model-value="form.values[key]"
             :required="version.jsonSchema.required?.includes(key)"
+            :readonly="isDocumentLocked"
             :errors="fields"
             :error="fields[`$.${key}`]"
             :ui="version.uiSchema.fieldConfigs?.[`$.${key}`]"
@@ -301,8 +625,11 @@ onMounted(load);
         </div>
       </div>
 
+      <!-- Sección especial Anexo 8: Cadena de Custodia (Fase D) -->
+      <CustodyEventSection v-if="isAnexo8" :instance-id="instanceId" />
+
       <!-- Feedback de Mensajes y Notificaciones de Propagación -->
-      <div v-if="message" class="mb-4 rounded-xl bg-[#effaf6] p-3 text-sm text-[#18735e] flex items-center gap-2">
+      <div v-if="message" class="mb-4 mt-6 rounded-xl bg-[#effaf6] p-3 text-sm text-[#18735e] flex items-center gap-2">
         <span>✓</span>
         <span>{{ message }}</span>
       </div>
@@ -319,35 +646,70 @@ onMounted(load);
         {{ controller.error }}
       </p>
 
-      <!-- Botones de Acción -->
+      <!-- Botones de Acción de Guardado / Edición -->
       <div class="flex flex-wrap justify-end gap-3 pt-4 border-t border-[#edf2f3]">
-        <button
-          type="button"
-          class="focus-ring rounded-lg border border-[#cbdce2] px-4 py-3 text-sm font-semibold text-[#1e5575] hover:bg-slate-50 cursor-pointer"
-          :disabled="saving"
-          @click="validateInstance"
-        >
-          Validar reglas
-        </button>
-        <button
-          type="button"
-          class="focus-ring rounded-lg border border-[#159c9a] bg-teal-50 px-4 py-3 text-sm font-semibold text-teal-800 hover:bg-teal-100 cursor-pointer disabled:opacity-50"
-          :disabled="saving"
-          @click="save(false)"
-        >
-          {{ saving ? "Guardando…" : "Guardar borrador local" }}
-        </button>
-        <button
-          type="button"
-          class="focus-ring rounded-lg bg-[#123047] px-5 py-3 text-sm font-semibold text-white hover:bg-[#1a3f5c] cursor-pointer disabled:opacity-50 shadow-xs flex items-center gap-2"
-          :disabled="saving"
-          @click="save(true)"
-        >
-          <span>🔄</span>
-          <span>{{ saving ? "Guardando y propagando…" : "Guardar y Propagar a otros Anexos" }}</span>
-        </button>
+        <template v-if="!isDocumentLocked">
+          <button
+            type="button"
+            class="focus-ring rounded-lg border border-[#cbdce2] px-4 py-3 text-sm font-semibold text-[#1e5575] hover:bg-slate-50 cursor-pointer"
+            :disabled="saving"
+            @click="handleValidateLifecycle"
+          >
+            Validar reglas
+          </button>
+          <button
+            type="button"
+            class="focus-ring rounded-lg border border-[#159c9a] bg-teal-50 px-4 py-3 text-sm font-semibold text-teal-800 hover:bg-teal-100 cursor-pointer disabled:opacity-50"
+            :disabled="saving"
+            @click="save(false)"
+          >
+            {{ saving ? "Guardando…" : "Guardar borrador local" }}
+          </button>
+          <button
+            type="button"
+            class="focus-ring rounded-lg bg-[#123047] px-5 py-3 text-sm font-semibold text-white hover:bg-[#1a3f5c] cursor-pointer disabled:opacity-50 shadow-xs flex items-center gap-2"
+            :disabled="saving"
+            @click="save(true)"
+          >
+            <span>🔄</span>
+            <span>{{ saving ? "Guardando y propagando…" : "Guardar y Propagar a otros Anexos" }}</span>
+          </button>
+        </template>
+        <template v-else>
+          <div class="text-xs text-slate-500 italic flex items-center gap-1.5 py-2">
+            <span>🔒</span>
+            <span>El formulario se encuentra en modo sólo lectura por encontrarse en estado {{ instance?.status }}.</span>
+          </div>
+        </template>
       </div>
     </div>
+
+    <!-- Modales de Ciclo de Vida -->
+    <PdfViewerModal
+      v-if="showPdfModal && selectedSnapshot"
+      :instance-id="instanceId"
+      :snapshot="selectedSnapshot"
+      :document-title="instance?.documentCode"
+      @close="showPdfModal = false"
+    />
+
+    <DocumentSignatureModal
+      v-if="showSignatureModal && selectedSnapshot"
+      :instance-id="instanceId"
+      :snapshot="selectedSnapshot"
+      :participants="participants"
+      @close="showSignatureModal = false"
+      @signed="onSigned"
+    />
+
+    <DocumentParticipantsDrawer
+      v-if="showParticipantsDrawer"
+      :instance-id="instanceId"
+      :participants="participants"
+      :is-locked="isDocumentLocked"
+      @close="showParticipantsDrawer = false"
+      @updated="loadLifecycleData"
+    />
 
     <!-- Modal de Resolución de Conflictos Canónicos (Fase C) -->
     <div

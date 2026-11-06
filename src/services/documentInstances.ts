@@ -1,7 +1,9 @@
 import { api } from "./api";
 import type { CreateInstanceInput, DocumentInstance, ResolveConflictInput, SaveRevisionInput } from "../types/document-engine";
+import { documentLifecycleService } from "./documentLifecycle";
 
 export const documentInstancesService = {
+  lifecycle: documentLifecycleService,
   async list(donorId: string): Promise<DocumentInstance[]> {
     const { data } = await api.get<DocumentInstance[]>(`/donors/${donorId}/document-instances`);
     return data;
