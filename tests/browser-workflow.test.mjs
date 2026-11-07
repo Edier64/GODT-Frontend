@@ -440,6 +440,62 @@ test("E2E Navigation Workflow: Institutional Login -> Process Detail -> 23 Posit
     console.log("PDF header magic bytes:", pdfHeader);
     assert.equal(pdfHeader, "%PDF-", "Binary must be a valid PDF document starting with %PDF-");
 
+    console.log("15. Requesting consolidated dossier export (Fase E)...");
+    const exportReqRes = await fetch(`http://127.0.0.1:${BACKEND_PORT}/api/v1/donation-processes/${processId}/dossier/exports`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        exportType: "FULL_ZIP",
+        includeSourceDocuments: false
+      })
+    });
+    assert.ok([200, 201, 202].includes(exportReqRes.status), "Export request must succeed");
+    const exportData = await exportReqRes.json();
+    const exportId = exportData.id;
+    console.log("Dossier export ID:", exportId, "initial status:", exportData.status);
+
+    // Poll until COMPLETED
+    let finalExport = exportData;
+    const pollStart = Date.now();
+    while (Date.now() - pollStart < 15000) {
+      const pollRes = await fetch(`http://127.0.0.1:${BACKEND_PORT}/api/v1/donation-processes/${processId}/dossier/exports/${exportId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      finalExport = await pollRes.json();
+      if (finalExport.status === "COMPLETED" || finalExport.status === "FAILED") break;
+      await sleep(1000);
+    }
+    console.log("Dossier export final status:", finalExport.status, "progress:", finalExport.progressPercent + "%");
+    assert.equal(finalExport.status, "COMPLETED", "Dossier export must complete");
+    assert.ok(finalExport.zipSha256, "Export must have zipSha256");
+
+    console.log("16. Downloading dossier ZIP and validating magic bytes...");
+    const zipRes = await fetch(`http://127.0.0.1:${BACKEND_PORT}/api/v1/donation-processes/${processId}/dossier/exports/${exportId}/download`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    assert.equal(zipRes.status, 200);
+    assert.equal(zipRes.headers.get("content-type"), "application/zip");
+    const zipBuffer = Buffer.from(await zipRes.arrayBuffer());
+    console.log("Downloaded ZIP size in bytes:", zipBuffer.length);
+    assert.ok(zipBuffer.length > 500, "ZIP must not be empty");
+    const zipMagic = zipBuffer.subarray(0, 4).toString("hex");
+    console.log("ZIP magic bytes (hex):", zipMagic);
+    assert.equal(zipMagic, "504b0304", "Binary must be a valid ZIP archive (PK\\x03\\x04)");
+
+    console.log("17. Verifying cryptographic integrity endpoint...");
+    const verifyRes = await fetch(`http://127.0.0.1:${BACKEND_PORT}/api/v1/donation-processes/${processId}/dossier/exports/${exportId}/verify`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    assert.ok([200, 201].includes(verifyRes.status), "Verify status must be 200 or 201");
+    const verifyReport = await verifyRes.json();
+    console.log("Integrity report status:", verifyReport.overallStatus, "passed:", verifyReport.passedCount, "failed:", verifyReport.failedCount);
+    assert.equal(verifyReport.overallStatus, "INTEGRITY_VERIFIED");
+    assert.equal(verifyReport.failedCount, 0);
+
     console.log("🎉 E2E Navigation Workflow successfully completed 100%!");
   } finally {
     if (chromeProcess) {

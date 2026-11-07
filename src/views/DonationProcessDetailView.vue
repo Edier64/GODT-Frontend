@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import AppLayout from "../components/AppLayout.vue";
 import StatusBadge from "../components/StatusBadge.vue";
@@ -26,6 +26,13 @@ import PdfViewerModal from "../components/PdfViewerModal.vue";
 import { documentLifecycleService } from "../services/documentLifecycle";
 import type { GeneratedPdfDocument } from "../types/document-lifecycle";
 import { getApiError } from "../services/api";
+import { dossierService } from "../services/dossier";
+import type {
+  DossierExportType,
+  DossierManifest,
+  IntegrityVerificationReport,
+  ProcessDossierExport,
+} from "../types/dossier";
 
 const route = useRoute();
 const router = useRouter();
@@ -84,7 +91,7 @@ const partForm = reactive({
   notes: "",
 });
 
-const activeMainTab = ref<"PACKAGE" | "CANONICAL">("PACKAGE");
+const activeMainTab = ref<"PACKAGE" | "CANONICAL" | "DOSSIER">("PACKAGE");
 const canonicalValues = ref<ProcessCanonicalValue[]>([]);
 const loadingCanonical = ref(false);
 const canonicalError = ref("");
@@ -94,6 +101,29 @@ const conflictsCount = computed(
       (v) => v.conflictStatus === "CONFLICT_DETECTED",
     ).length,
 );
+
+// --- ESTADO FASE E: EXPEDIENTE CONSOLIDADO ---
+const dossierExports = ref<ProcessDossierExport[]>([]);
+const loadingDossier = ref(false);
+const dossierError = ref("");
+const activeExport = ref<ProcessDossierExport | null>(null);
+const pollingInterval = ref<any>(null);
+
+const showRequestExportModal = ref(false);
+const requestExportForm = reactive({
+  exportType: "FULL_ZIP" as DossierExportType,
+  includeSourceDocuments: false,
+  confirmSensitiveNotice: false,
+});
+const requestingExport = ref(false);
+
+const showManifestModal = ref(false);
+const currentManifest = ref<DossierManifest | null>(null);
+const loadingManifest = ref(false);
+
+const showVerificationModal = ref(false);
+const verificationReport = ref<IntegrityVerificationReport | null>(null);
+const verifyingIntegrity = ref(false);
 
 const packageMetrics = computed(() => {
   const docs = documentsSummary.value?.documents || [];
@@ -256,12 +286,173 @@ function formatCanonicalValue(val: unknown, dataType: string): string {
   return String(val);
 }
 
+// --- MÉTODOS FASE E: EXPEDIENTE CONSOLIDADO ---
+async function loadDossierExports() {
+  if (!processId.value) return;
+  loadingDossier.value = true;
+  dossierError.value = "";
+  try {
+    const list = await dossierService.listExports(processId.value);
+    dossierExports.value = list;
+    const running = list.find((e) => e.status === "PENDING" || e.status === "PROCESSING");
+    if (running) {
+      activeExport.value = running;
+      startDossierPolling(running.id);
+    } else {
+      activeExport.value = null;
+      stopDossierPolling();
+    }
+  } catch (err: any) {
+    dossierError.value = getApiError(err);
+  } finally {
+    loadingDossier.value = false;
+  }
+}
+
+function startDossierPolling(exportId: string) {
+  if (pollingInterval.value) clearInterval(pollingInterval.value);
+  pollingInterval.value = setInterval(async () => {
+    try {
+      const exp = await dossierService.getExport(processId.value, exportId);
+      activeExport.value = exp;
+      if (exp.status === "COMPLETED" || exp.status === "FAILED") {
+        stopDossierPolling();
+        await loadDossierExports();
+      }
+    } catch {
+      stopDossierPolling();
+    }
+  }, 2500);
+}
+
+function stopDossierPolling() {
+  if (pollingInterval.value) {
+    clearInterval(pollingInterval.value);
+    pollingInterval.value = null;
+  }
+}
+
+async function switchToDossierTab() {
+  activeMainTab.value = "DOSSIER";
+  await loadDossierExports();
+}
+
+function handleOpenRequestExportModal() {
+  requestExportForm.exportType = "FULL_ZIP";
+  requestExportForm.includeSourceDocuments = false;
+  requestExportForm.confirmSensitiveNotice = false;
+  showRequestExportModal.value = true;
+}
+
+async function handleConfirmRequestExport() {
+  if (!processId.value) return;
+  if (requestExportForm.includeSourceDocuments && !requestExportForm.confirmSensitiveNotice) {
+    alert(
+      "Debe confirmar expresamente la autorización para exportar historias clínicas y documentos complementarios.",
+    );
+    return;
+  }
+
+  requestingExport.value = true;
+  try {
+    const exp = await dossierService.requestExport(processId.value, {
+      exportType: requestExportForm.exportType,
+      includeSourceDocuments: requestExportForm.includeSourceDocuments,
+    });
+    showRequestExportModal.value = false;
+    activeExport.value = exp;
+    await loadDossierExports();
+    startDossierPolling(exp.id);
+  } catch (err: any) {
+    alert(getApiError(err));
+  } finally {
+    requestingExport.value = false;
+  }
+}
+
+async function handleDownloadZip(exp: ProcessDossierExport) {
+  try {
+    const blob = await dossierService.downloadZip(processId.value, exp.id);
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `GODT_EXPEDIENTE_${currentProcess.value?.processCode || processId.value}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  } catch (err: any) {
+    alert(getApiError(err));
+  }
+}
+
+async function handleDownloadConsolidatedPdf(exp: ProcessDossierExport) {
+  try {
+    const blob = await dossierService.downloadConsolidatedPdf(processId.value, exp.id);
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `expediente_consolidado_${currentProcess.value?.processCode || processId.value}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+  } catch (err: any) {
+    alert(getApiError(err));
+  }
+}
+
+async function handleViewManifest(exp: ProcessDossierExport) {
+  loadingManifest.value = true;
+  showManifestModal.value = true;
+  try {
+    if (exp.manifestData) {
+      currentManifest.value = exp.manifestData;
+    } else {
+      currentManifest.value = await dossierService.getManifest(processId.value, exp.id);
+    }
+  } catch (err: any) {
+    alert(getApiError(err));
+    showManifestModal.value = false;
+  } finally {
+    loadingManifest.value = false;
+  }
+}
+
+async function handleVerifyIntegrity(exp: ProcessDossierExport) {
+  verifyingIntegrity.value = true;
+  showVerificationModal.value = true;
+  verificationReport.value = null;
+  try {
+    verificationReport.value = await dossierService.verifyIntegrity(processId.value, exp.id);
+  } catch (err: any) {
+    alert(getApiError(err));
+    showVerificationModal.value = false;
+  } finally {
+    verifyingIntegrity.value = false;
+  }
+}
+
+function formatBytes(bytes?: number | null): string {
+  if (!bytes || bytes === 0) return "0 B";
+  const k = 1024;
+  const dm = 2;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+}
+
 onMounted(async () => {
   if (processId.value) {
     await loadProcess(processId.value);
     await loadDocuments(processId.value);
     await loadCanonical();
+    await loadDossierExports();
   }
+});
+
+onUnmounted(() => {
+  stopDossierPolling();
 });
 
 const filteredDocuments = computed(() => {
@@ -557,6 +748,20 @@ function formatDate(iso?: string | null): string {
             class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-500 text-white animate-pulse"
           >
             {{ conflictsCount }} conflicto(s)
+          </span>
+        </button>
+        <button
+          type="button"
+          class="px-5 py-3 text-sm font-semibold border-b-2 transition cursor-pointer flex items-center gap-2"
+          :class="activeMainTab === 'DOSSIER' ? 'border-indigo-600 text-indigo-700 bg-white font-bold' : 'border-transparent text-slate-500 hover:text-slate-700'"
+          @click="switchToDossierTab"
+        >
+          <span>📦 Expediente Consolidado (Fase E)</span>
+          <span
+            v-if="activeExport && (activeExport.status === 'PROCESSING' || activeExport.status === 'PENDING')"
+            class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white animate-pulse"
+          >
+            {{ activeExport.progressPercent }}%
           </span>
         </button>
       </div>
@@ -1179,6 +1384,312 @@ function formatDate(iso?: string | null): string {
         </div>
       </div>
 
+      <!-- SECCIÓN FASE E: EXPEDIENTE DOCUMENTAL CONSOLIDADO Y EXPORTACIÓN -->
+      <div v-if="activeMainTab === 'DOSSIER'" class="bg-white p-6 rounded-xl border border-slate-200 shadow-xs space-y-6">
+        <div class="flex flex-col 2xl:flex-row 2xl:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+          <div>
+            <div class="flex items-center gap-2">
+              <h2 class="text-lg font-bold text-slate-800">
+                Expediente Documental Consolidado — Regional 3 (Fase E)
+              </h2>
+              <span class="px-2.5 py-0.5 bg-blue-50 text-blue-800 text-xs font-semibold rounded-full border border-blue-200">
+                Paquete Criptográfico Completo
+              </span>
+            </div>
+            <p class="text-xs text-slate-500 mt-1">
+              Consolidación inmutable de documentos liberados, índice oficial paginado, manifiesto de integridad SHA-256 y cadena de custodia unificada.
+            </p>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <button
+              type="button"
+              class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5"
+              :disabled="loadingDossier"
+              @click="loadDossierExports"
+            >
+              <span>🔄 Recargar</span>
+            </button>
+            <button
+              type="button"
+              class="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer flex items-center gap-2"
+              @click="handleOpenRequestExportModal"
+            >
+              <span>📦 Solicitar Exportación de Expediente</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Banner de Trabajo Activo en Segundo Plano (Redis/BullMQ) -->
+        <div
+          v-if="activeExport && (activeExport.status === 'PROCESSING' || activeExport.status === 'PENDING')"
+          class="p-5 bg-amber-50 border border-amber-200 rounded-xl space-y-3"
+        >
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2.5">
+              <span class="w-3 h-3 rounded-full bg-amber-500 animate-ping"></span>
+              <span class="text-sm font-bold text-amber-900">
+                Procesando Exportación en Segundo Plano (ID: {{ activeExport.id.slice(0, 8) }}...)
+              </span>
+            </div>
+            <span class="text-xs font-mono font-bold text-amber-800">
+              {{ activeExport.progressPercent }}%
+            </span>
+          </div>
+          <div class="w-full bg-amber-200 rounded-full h-2.5 overflow-hidden">
+            <div
+              class="bg-amber-600 h-2.5 rounded-full transition-all duration-500"
+              :style="{ width: `${activeExport.progressPercent}%` }"
+            ></div>
+          </div>
+          <p class="text-xs text-amber-800">
+            <strong>Paso actual:</strong> {{ activeExport.currentStep || "Iniciando consolidación..." }}.
+            El sistema continuará procesando automáticamente.
+          </p>
+        </div>
+
+        <!-- Métricas Rápidas del Expediente -->
+        <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+          <div class="p-4 bg-slate-50 rounded-xl border border-slate-200">
+            <div class="text-[11px] font-bold text-slate-500 uppercase">Total Posiciones</div>
+            <div class="text-2xl font-bold font-mono text-slate-800 mt-1">23</div>
+            <div class="text-[10px] text-slate-400 mt-0.5">Paquete Oficial R3</div>
+          </div>
+          <div class="p-4 bg-emerald-50 rounded-xl border border-emerald-200">
+            <div class="text-[11px] font-bold text-emerald-700 uppercase">Liberados (PDFs)</div>
+            <div class="text-2xl font-bold font-mono text-emerald-800 mt-1">{{ packageMetrics.signed }}</div>
+            <div class="text-[10px] text-emerald-600 mt-0.5">En expediente consolidado</div>
+          </div>
+          <div class="p-4 bg-amber-50 rounded-xl border border-amber-200">
+            <div class="text-[11px] font-bold text-amber-700 uppercase">En Trámite</div>
+            <div class="text-2xl font-bold font-mono text-amber-800 mt-1">
+              {{ packageMetrics.pending + packageMetrics.inProgress }}
+            </div>
+            <div class="text-[10px] text-amber-600 mt-0.5">Pendientes de liberación</div>
+          </div>
+          <div class="p-4 bg-slate-50 rounded-xl border border-slate-200">
+            <div class="text-[11px] font-bold text-slate-500 uppercase">No Aplica</div>
+            <div class="text-2xl font-bold font-mono text-slate-700 mt-1">{{ packageMetrics.nonApplicable }}</div>
+            <div class="text-[10px] text-slate-400 mt-0.5">Justificados con motivo</div>
+          </div>
+          <div class="p-4 bg-purple-50 rounded-xl border border-purple-200">
+            <div class="text-[11px] font-bold text-purple-700 uppercase">Homologación</div>
+            <div class="text-2xl font-bold font-mono text-purple-800 mt-1">{{ packageMetrics.pendingHomologation }}</div>
+            <div class="text-[10px] text-purple-600 mt-0.5">Posiciones 20 a 23</div>
+          </div>
+        </div>
+
+        <!-- Historial de Paquetes y Exportaciones -->
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wide">
+              Historial de Expedientes Exportados
+            </h3>
+            <span class="text-xs text-slate-400">
+              {{ dossierExports.length }} registro(s) disponible(s)
+            </span>
+          </div>
+
+          <div v-if="loadingDossier" class="p-8 text-center text-slate-400 text-xs">
+            Cargando expedientes...
+          </div>
+
+          <div
+            v-else-if="dossierExports.length === 0"
+            class="p-8 text-center bg-slate-50 border border-dashed border-slate-200 rounded-xl text-slate-500 text-xs space-y-2"
+          >
+            <p>No se han generado exportaciones de expediente para este proceso de donación aún.</p>
+            <p class="text-slate-400">
+              Haga clic en <strong>"Solicitar Exportación de Expediente"</strong> para compilar el paquete ZIP con los documentos liberados.
+            </p>
+          </div>
+
+          <div v-else class="overflow-x-auto border border-slate-200 rounded-xl shadow-xs">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
+                <tr>
+                  <th class="px-4 py-3">Fecha / Operador</th>
+                  <th class="px-4 py-3">Tipo / Estado</th>
+                  <th class="px-4 py-3">Tamaño ZIP</th>
+                  <th class="px-4 py-3">Hash SHA-256 (Paquete)</th>
+                  <th class="px-4 py-3 text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100 bg-white">
+                <tr v-for="exp in dossierExports" :key="exp.id" class="hover:bg-slate-50/60 transition">
+                  <td class="px-4 py-3">
+                    <div class="font-semibold text-slate-800">{{ formatDate(exp.createdAt) }}</div>
+                    <div class="text-[11px] text-slate-400">
+                      {{ exp.requestedBy?.fullName || "Coordinador GODT" }}
+                    </div>
+                  </td>
+                  <td class="px-4 py-3">
+                    <div class="flex items-center gap-2">
+                      <span
+                        class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider"
+                        :class="{
+                          'bg-emerald-100 text-emerald-800': exp.status === 'COMPLETED',
+                          'bg-amber-100 text-amber-800 animate-pulse': exp.status === 'PROCESSING' || exp.status === 'PENDING',
+                          'bg-rose-100 text-rose-800': exp.status === 'FAILED',
+                          'bg-slate-100 text-slate-600': exp.status === 'EXPIRED',
+                        }"
+                      >
+                        {{ exp.status }}
+                      </span>
+                      <span class="text-[11px] text-slate-500 font-mono">
+                        {{ exp.exportType }}
+                      </span>
+                    </div>
+                    <div v-if="exp.includeSourceDocuments" class="text-[10px] text-amber-700 font-semibold mt-0.5">
+                      + Fuentes complementarias incluidas
+                    </div>
+                  </td>
+                  <td class="px-4 py-3 font-mono text-slate-600">
+                    {{ formatBytes(exp.zipSizeBytes) }}
+                  </td>
+                  <td class="px-4 py-3">
+                    <span
+                      v-if="exp.zipSha256"
+                      class="font-mono text-[11px] text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200 block truncate max-w-[200px]"
+                      :title="exp.zipSha256"
+                    >
+                      {{ exp.zipSha256 }}
+                    </span>
+                    <span v-else class="text-slate-400">—</span>
+                  </td>
+                  <td class="px-4 py-3 text-right space-x-1.5 whitespace-nowrap">
+                    <!-- Descargar ZIP -->
+                    <button
+                      v-if="exp.status === 'COMPLETED' && exp.zipStorageKey"
+                      type="button"
+                      class="px-2.5 py-1 bg-teal-50 hover:bg-teal-100 text-teal-700 rounded text-xs font-semibold transition cursor-pointer"
+                      title="Descargar paquete ZIP completo"
+                      @click="handleDownloadZip(exp)"
+                    >
+                      ⬇️ ZIP
+                    </button>
+
+                    <!-- Descargar PDF Consolidado -->
+                    <button
+                      v-if="exp.status === 'COMPLETED' && exp.consolidatedPdfStorageKey"
+                      type="button"
+                      class="px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 rounded text-xs font-semibold transition cursor-pointer"
+                      title="Descargar documento PDF consolidado"
+                      @click="handleDownloadConsolidatedPdf(exp)"
+                    >
+                      📄 PDF
+                    </button>
+
+                    <!-- Ver Manifiesto -->
+                    <button
+                      v-if="exp.status === 'COMPLETED'"
+                      type="button"
+                      class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-semibold transition cursor-pointer"
+                      title="Ver Manifiesto de Integridad"
+                      @click="handleViewManifest(exp)"
+                    >
+                      📜 Manifiesto
+                    </button>
+
+                    <!-- Verificar Integridad -->
+                    <button
+                      v-if="exp.status === 'COMPLETED'"
+                      type="button"
+                      class="px-2.5 py-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded text-xs font-semibold transition cursor-pointer"
+                      title="Ejecutar Verificación Criptográfica SHA-256"
+                      @click="handleVerifyIntegrity(exp)"
+                    >
+                      🛡️ Verificar
+                    </button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Matriz de las 23 Posiciones en el Expediente -->
+        <div class="space-y-3 pt-4 border-t border-slate-100">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wide">
+              Matriz de Composición del Expediente (23 Posiciones)
+            </h3>
+            <span class="text-xs text-slate-500">
+              Taxonomía Reglamentaria Regional 3
+            </span>
+          </div>
+
+          <div class="overflow-x-auto border border-slate-200 rounded-xl shadow-xs">
+            <table class="w-full text-left text-xs">
+              <thead class="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
+                <tr>
+                  <th class="px-4 py-2.5 w-16"># Pos</th>
+                  <th class="px-4 py-2.5">Código</th>
+                  <th class="px-4 py-2.5">Documento / Anexo</th>
+                  <th class="px-4 py-2.5">Categoría</th>
+                  <th class="px-4 py-2.5">Estado Operativo</th>
+                  <th class="px-4 py-2.5">Inclusión en Expediente</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100 bg-white">
+                <tr
+                  v-for="doc in documentsSummary?.documents || []"
+                  :key="doc.id"
+                  class="hover:bg-slate-50/50 transition"
+                >
+                  <td class="px-4 py-2.5 font-mono font-bold text-slate-700">
+                    {{ doc.positionNumber }}
+                  </td>
+                  <td class="px-4 py-2.5 font-mono font-semibold text-indigo-700">
+                    {{ doc.documentCode }}
+                  </td>
+                  <td class="px-4 py-2.5 font-medium text-slate-800">
+                    {{ doc.title }}
+                  </td>
+                  <td class="px-4 py-2.5">
+                    <span
+                      class="px-2 py-0.5 rounded text-[10px] font-semibold"
+                      :class="doc.category === 'PENDING_HOMOLOGATION' ? 'bg-purple-50 text-purple-700 border border-purple-200' : 'bg-slate-100 text-slate-600'"
+                    >
+                      {{ doc.category }}
+                    </span>
+                  </td>
+                  <td class="px-4 py-2.5">
+                    <StatusBadge :status="doc.status" />
+                  </td>
+                  <td class="px-4 py-2.5">
+                    <span
+                      v-if="((doc.status as string) === 'LIBERADO' || (doc.status as string) === 'FIRMADO') && doc.applicabilityStatus !== 'NO_APLICA'"
+                      class="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 rounded text-[11px] font-bold"
+                    >
+                      ✓ Incluido en PDF y ZIP
+                    </span>
+                    <span
+                      v-else-if="doc.applicabilityStatus === 'NO_APLICA'"
+                      class="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-500 rounded text-[11px]"
+                    >
+                      ⊗ Descartado (No Aplica)
+                    </span>
+                    <span
+                      v-else-if="doc.category === 'PENDING_HOMOLOGATION'"
+                      class="inline-flex items-center gap-1 px-2 py-0.5 bg-purple-50 text-purple-700 rounded text-[11px]"
+                    >
+                      ⏳ Pendiente Homologación
+                    </span>
+                    <span
+                      v-else
+                      class="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-700 rounded text-[11px]"
+                    >
+                      ⏳ En trámite (sin PDF liberado)
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
       <!-- Modal Modificar Aplicabilidad -->
       <div
         v-if="showApplicabilityModal && selectedDocForApplicability"
@@ -1650,4 +2161,315 @@ function formatDate(iso?: string | null): string {
       :document-title="selectedProcessPdfDocTitle"
       @close="showProcessPdfModal = false"
     />
+
+    <!-- MODAL 1: Solicitar Exportación de Expediente (Fase E) -->
+    <div
+      v-if="showRequestExportModal"
+      class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4"
+    >
+      <div class="bg-white w-full max-w-lg rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+        <div class="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+          <div>
+            <h3 class="text-base font-bold text-slate-800">
+              Solicitar Exportación de Expediente
+            </h3>
+            <p class="text-xs text-slate-500">
+              Proceso {{ currentProcess?.processCode }} — Donante {{ currentProcess?.donor?.fullName }}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="text-slate-400 hover:text-slate-600 cursor-pointer"
+            @click="showRequestExportModal = false"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form class="p-6 space-y-4" @submit.prevent="handleConfirmRequestExport">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">
+              Tipo de Paquete a Generar *
+            </label>
+            <select
+              v-model="requestExportForm.exportType"
+              class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-teal-500"
+            >
+              <option value="FULL_ZIP">
+                Expediente Completo (Archivo ZIP con las 6 carpetas reglamentarias)
+              </option>
+              <option value="CONSOLIDATED_PDF">
+                Solo Documento PDF Consolidado Continuo
+              </option>
+            </select>
+          </div>
+
+          <!-- Opción de Documentos Fuente / Historias Clínicas -->
+          <div class="p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-3">
+            <div class="flex items-start gap-3">
+              <input
+                id="incSources"
+                v-model="requestExportForm.includeSourceDocuments"
+                type="checkbox"
+                class="mt-1 h-4 w-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+              />
+              <label for="incSources" class="text-xs text-slate-700 cursor-pointer">
+                <span class="font-bold text-slate-800 block">
+                  Incluir Documentos Fuente e Historias Clínicas Complementarias
+                </span>
+                Carpeta <code>05_FUENTES_COMPLEMENTARIAS</code>. Por defecto los documentos fuente sensibles se excluyen de la exportación general.
+              </label>
+            </div>
+
+            <!-- Advertencia de Seguridad y Confirmación Obligatoria -->
+            <div
+              v-if="requestExportForm.includeSourceDocuments"
+              class="p-3 bg-amber-50 border border-amber-300 rounded-lg text-xs space-y-2 text-amber-900"
+            >
+              <div class="font-bold flex items-center gap-1.5">
+                <span>⚠️ ADVERTENCIA DE PRIVACIDAD Y SEGURIDAD CLÍNICA:</span>
+              </div>
+              <p>
+                De acuerdo con la Ley Estatutaria 1581 de 2012 y normatividad sanitaria de trasplantes, la historia clínica y anexos fuente son confidenciales. Solo deben exportarse para fines de auditoría forense o requerimiento judicial expreso.
+              </p>
+              <div class="flex items-center gap-2 pt-1 border-t border-amber-200">
+                <input
+                  id="confirmSensitive"
+                  v-model="requestExportForm.confirmSensitiveNotice"
+                  type="checkbox"
+                  class="h-4 w-4 rounded border-amber-400 text-teal-600 focus:ring-teal-500"
+                />
+                <label for="confirmSensitive" class="text-[11px] font-semibold cursor-pointer">
+                  Confirmo bajo juramento que cuento con la debida autorización institucional.
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <div class="pt-3 border-t border-slate-100 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+              :disabled="requestingExport"
+              @click="showRequestExportModal = false"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              class="px-4 py-2 text-xs font-semibold text-white bg-teal-600 hover:bg-teal-700 rounded-lg cursor-pointer disabled:opacity-50 flex items-center gap-1.5 shadow-xs"
+              :disabled="requestingExport"
+            >
+              <span v-if="requestingExport" class="inline-block animate-spin">⏳</span>
+              <span>{{ requestingExport ? "Encolando exportación…" : "Generar Expediente" }}</span>
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL 2: Ver Manifiesto de Integridad (Fase E) -->
+    <div
+      v-if="showManifestModal"
+      class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4"
+    >
+      <div class="bg-white w-full max-w-3xl rounded-2xl shadow-xl border border-slate-200 overflow-hidden max-h-[90vh] flex flex-col">
+        <div class="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+          <div>
+            <h3 class="text-base font-bold text-slate-800">
+              Manifiesto de Integridad Criptográfica (SHA-256)
+            </h3>
+            <p class="text-xs text-slate-500 font-mono">
+              manifiesto_integridad.json — {{ currentManifest?.processCode }}
+            </p>
+          </div>
+          <button
+            type="button"
+            class="text-slate-400 hover:text-slate-600 cursor-pointer"
+            @click="showManifestModal = false"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div class="p-6 overflow-y-auto space-y-4 flex-1">
+          <div v-if="loadingManifest" class="p-8 text-center text-slate-400 text-xs">
+            Cargando manifiesto...
+          </div>
+          <div v-else-if="currentManifest" class="space-y-4">
+            <!-- Tarjetas de resumen del manifiesto -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+              <div class="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <div class="text-[10px] text-slate-400 uppercase font-semibold">Generado por</div>
+                <div class="font-bold text-slate-800 truncate">{{ currentManifest.generatedBy?.fullName }}</div>
+              </div>
+              <div class="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <div class="text-[10px] text-slate-400 uppercase font-semibold">Fecha</div>
+                <div class="font-bold text-slate-800">{{ formatDate(currentManifest.generatedAt) }}</div>
+              </div>
+              <div class="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <div class="text-[10px] text-slate-400 uppercase font-semibold">Documentos Liberados</div>
+                <div class="font-bold font-mono text-emerald-700">{{ currentManifest.summary?.releasedCount }} / 23</div>
+              </div>
+              <div class="p-3 bg-slate-50 rounded-lg border border-slate-200">
+                <div class="text-[10px] text-slate-400 uppercase font-semibold">Hash Determinista</div>
+                <div class="font-mono text-[10px] text-slate-700 truncate" :title="currentManifest.manifestSha256">
+                  {{ currentManifest.manifestSha256 || "N/A" }}
+                </div>
+              </div>
+            </div>
+
+            <!-- Preformatted JSON Viewer -->
+            <div class="relative">
+              <pre class="bg-slate-900 text-slate-100 p-4 rounded-xl text-xs font-mono overflow-x-auto max-h-[50vh] leading-relaxed select-all">{{ JSON.stringify(currentManifest, null, 2) }}</pre>
+            </div>
+          </div>
+        </div>
+
+        <div class="px-6 py-3 bg-slate-50 border-t border-slate-200 flex justify-end">
+          <button
+            type="button"
+            class="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg cursor-pointer"
+            @click="showManifestModal = false"
+          >
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL 3: Auditoría y Verificación Criptográfica SHA-256 (Fase E) -->
+    <div
+      v-if="showVerificationModal"
+      class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4"
+    >
+      <div class="bg-white w-full max-w-4xl rounded-2xl shadow-xl border border-slate-200 overflow-hidden max-h-[90vh] flex flex-col">
+        <div class="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <span class="text-2xl">🛡️</span>
+            <div>
+              <h3 class="text-base font-bold text-slate-800">
+                Auditoría Criptográfica de Integridad Documental
+              </h3>
+              <p class="text-xs text-slate-500">
+                Verificación matemática bit a bit de sumas de chequeo SHA-256 contra el manifiesto inmutable
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="text-slate-400 hover:text-slate-600 cursor-pointer"
+            @click="showVerificationModal = false"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div class="p-6 overflow-y-auto space-y-5 flex-1">
+          <div v-if="verifyingIntegrity" class="p-12 text-center space-y-3">
+            <span class="inline-block animate-spin text-3xl">🔄</span>
+            <p class="text-sm font-semibold text-slate-700">
+              Calculando sumas criptográficas SHA-256 de todos los componentes...
+            </p>
+            <p class="text-xs text-slate-400">
+              Esto garantiza que ningún PDF, manifiesto ni archivo ZIP haya sido modificado tras su liberación.
+            </p>
+          </div>
+
+          <div v-else-if="verificationReport" class="space-y-5">
+            <!-- Banner de Estatus Global -->
+            <div
+              class="p-5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+              :class="{
+                'bg-emerald-50 border-emerald-300 text-emerald-950': verificationReport.overallStatus === 'INTEGRITY_VERIFIED',
+                'bg-rose-50 border-rose-300 text-rose-950': verificationReport.overallStatus === 'INTEGRITY_COMPROMISED',
+              }"
+            >
+              <div class="flex items-center gap-3.5">
+                <span class="text-3xl">
+                  {{ verificationReport.overallStatus === 'INTEGRITY_VERIFIED' ? '✅' : '❌' }}
+                </span>
+                <div>
+                  <h4 class="text-base font-bold">
+                    {{
+                      verificationReport.overallStatus === 'INTEGRITY_VERIFIED'
+                        ? 'INTEGRIDAD COMPLETA VERIFICADA (100% OK)'
+                        : 'ALERTA: INTEGRIDAD COMPROMETIDA'
+                    }}
+                  </h4>
+                  <p class="text-xs opacity-90 mt-0.5">
+                    {{
+                      verificationReport.overallStatus === 'INTEGRITY_VERIFIED'
+                        ? 'Todos los binarios almacenados coinciden exactamente con sus sellos criptográficos SHA-256 registrados.'
+                        : 'Se detectaron discrepancias entre los archivos almacenados y los registros firmados.'
+                    }}
+                  </p>
+                </div>
+              </div>
+
+              <div class="flex items-center gap-3 text-xs font-mono font-bold">
+                <div class="px-3 py-1.5 bg-white/80 rounded-lg border border-current">
+                  {{ verificationReport.passedCount }} / {{ verificationReport.totalChecked }} verificados
+                </div>
+              </div>
+            </div>
+
+            <!-- Tabla de Archivos Inspeccionados -->
+            <div class="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+              <table class="w-full text-left text-xs">
+                <thead class="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
+                  <tr>
+                    <th class="px-4 py-3">Tipo</th>
+                    <th class="px-4 py-3">Documento / Archivo</th>
+                    <th class="px-4 py-3">Hash Esperado vs Calculado</th>
+                    <th class="px-4 py-3 text-right">Resultado</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 bg-white">
+                  <tr v-for="item in verificationReport.items" :key="item.codeOrName" class="hover:bg-slate-50/60 transition">
+                    <td class="px-4 py-3 font-semibold text-slate-600">
+                      {{ item.itemType }}
+                    </td>
+                    <td class="px-4 py-3 font-mono text-slate-800">
+                      {{ item.codeOrName }}
+                    </td>
+                    <td class="px-4 py-3 font-mono text-[10px] space-y-0.5">
+                      <div class="text-slate-500">
+                        <span class="text-slate-400">EXP:</span> {{ item.expectedSha256 }}
+                      </div>
+                      <div :class="item.matches ? 'text-emerald-700' : 'text-rose-700 font-bold'">
+                        <span class="text-slate-400">ACT:</span> {{ item.actualSha256 }}
+                      </div>
+                    </td>
+                    <td class="px-4 py-3 text-right">
+                      <span
+                        class="px-2 py-0.5 rounded text-[10px] font-bold"
+                        :class="item.matches ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'"
+                      >
+                        {{ item.status }}
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="p-3 bg-slate-50 rounded-lg text-slate-500 text-[11px]">
+              <strong>Auditoría registrada:</strong> Evento <code>DOSSIER_INTEGRITY_VERIFIED</code> por
+              {{ verificationReport.verifiedBy }} el {{ formatDate(verificationReport.verifiedAt) }}.
+            </div>
+          </div>
+        </div>
+
+        <div class="px-6 py-3 bg-slate-50 border-t border-slate-200 flex justify-end">
+          <button
+            type="button"
+            class="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg cursor-pointer"
+            @click="showVerificationModal = false"
+          >
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
 </template>
