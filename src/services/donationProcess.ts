@@ -3,6 +3,7 @@ import type {
   AddProcessInstitutionPayload,
   AddProcessParticipantPayload,
   CreateDonationProcessPayload,
+  DashboardSummary,
   DependencyEvaluationResult,
   DonationProcess,
   ProcessDocument,
@@ -26,6 +27,11 @@ export async function listDonationProcesses(query?: {
     page: number;
     pageSize: number;
   }>("/donation-processes", { params: query });
+  return response.data;
+}
+
+export async function getDashboardSummary(): Promise<DashboardSummary> {
+  const response = await api.get<DashboardSummary>("/donation-processes/dashboard/summary");
   return response.data;
 }
 

@@ -1,3 +1,44 @@
+export interface DashboardSummary {
+  processes: {
+    total: number;
+    byStatus: {
+      EN_VALORACION: number;
+      EN_CURSO: number;
+      COMPLETADO: number;
+      CANCELADO: number;
+      SUSPENDIDO: number;
+    };
+  };
+  donors: {
+    total: number;
+    byStatus: {
+      EN_VALORACION: number;
+      ACTIVO: number;
+      CERRADO: number;
+    };
+  };
+  documents: {
+    total: number;
+    byStatus: {
+      PENDIENTE: number;
+      DILIGENCIADO: number;
+      VALIDADO: number;
+      FIRMADO: number;
+      LIBERADO: number;
+    };
+  };
+  recentProcesses: Array<{
+    id: string;
+    processCode: string;
+    status: string;
+    primaryIpsName: string;
+    donorName?: string;
+    donorRndCode?: string;
+    openedAt: string;
+    updatedAt: string;
+  }>;
+}
+
 export type DonationProcessStatus =
   | "EN_VALORACION"
   | "EN_CURSO"
@@ -80,8 +121,19 @@ export interface DonationProcess {
   };
 }
 
+export interface InitialDonorPayload {
+  rndCode?: string;
+  originatingIpsName?: string;
+  clinicalService?: string;
+  fullName?: string;
+  documentNumber?: string;
+  bloodGroup?: string;
+  rhFactor?: string;
+}
+
 export interface CreateDonationProcessPayload {
-  donorId: string;
+  donorId?: string;
+  donor?: InitialDonorPayload;
   primaryIpsName: string;
   processCode?: string;
   notes?: string;

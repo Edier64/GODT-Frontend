@@ -150,15 +150,27 @@ export interface DocumentInstance {
   templateVersion?: TemplateVersion;
 }
 
+export interface SourceProvenanceInput {
+  fieldPath: string;
+  sourceKind: string;
+  canonicalFieldKey?: string;
+  sourceEntityId?: string;
+  sourceDocumentId?: string;
+  ocrFieldId?: string;
+  conflictStatus?: string;
+  conflictDetails?: unknown;
+  sourceValue?: unknown;
+}
+
 export interface CreateInstanceInput {
   templateVersionId: string;
   responseData: Record<string, unknown>;
-  sourceProvenance?: DocumentProvenance[];
+  sourceProvenance?: SourceProvenanceInput[];
 }
 
 export interface SaveRevisionInput {
   responseData: Record<string, unknown>;
-  sourceProvenance?: DocumentProvenance[];
+  sourceProvenance?: SourceProvenanceInput[];
 }
 
 export interface ResolveConflictInput {
