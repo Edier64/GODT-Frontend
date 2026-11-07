@@ -43,26 +43,56 @@ onBeforeUnmount(() => window.removeEventListener("godt:session-expired", handleS
         <RouterLink active-class="bg-[#1e5575] text-white shadow-sm" class="focus-ring block rounded-lg px-4 py-3 text-sm text-white/65 transition hover:bg-white/10 hover:text-white" to="/expedientes">Legalización</RouterLink>
         <span aria-disabled="true" class="block rounded-lg px-4 py-3 text-sm text-white/30">Reportes no disponibles</span>
       </nav>
-      <div class="mt-auto hidden border-t border-white/10 p-4 lg:block">
-        <button class="focus-ring flex w-full items-center gap-3 rounded-lg border border-white/15 px-3 py-3 text-left text-sm text-white/75 hover:bg-white/10" @click="showToken = true">
-          <span class="grid h-8 w-8 place-items-center rounded-full bg-[#159c9a] text-xs font-bold">U</span>
-          <span><span class="block text-xs font-semibold">{{ auth.isAuthenticated ? "Sesión activa" : "Sin sesión" }}</span><span class="block text-[11px] text-white/45">Configurar acceso</span></span>
+      <div class="mt-auto hidden border-t border-white/10 p-4 lg:block space-y-2">
+        <button class="focus-ring flex w-full items-center gap-3 rounded-lg border border-white/15 px-3 py-2.5 text-left text-sm text-white/75 hover:bg-white/10 cursor-pointer" @click="showToken = true">
+          <span class="grid h-8 w-8 place-items-center rounded-full bg-[#159c9a] text-xs font-bold shrink-0">U</span>
+          <span class="min-w-0 flex-1">
+            <span class="block text-xs font-semibold truncate">{{ auth.isAuthenticated ? "Sesión activa" : "Sin sesión" }}</span>
+            <span class="block text-[11px] text-white/45 truncate">Token / JWT</span>
+          </span>
         </button>
+        <RouterLink
+          to="/acceso"
+          class="flex items-center justify-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-xs font-medium text-white/80 hover:bg-white/20 transition-colors"
+        >
+          <span>🔐</span>
+          <span>{{ auth.isAuthenticated ? "Cambiar usuario / Acceso" : "Iniciar sesión institucional" }}</span>
+        </RouterLink>
       </div>
     </aside>
-    <div class="min-w-0 flex-1">
+    <div class="min-w-0 flex-1 overflow-x-hidden">
       <header class="flex items-center justify-between border-b border-[#e1e8ed] bg-white px-5 py-4 sm:px-8">
-        <div><p class="text-xs font-semibold uppercase tracking-[0.18em] text-[#6b8790]">Gestión operativa</p><p class="mt-1 text-sm text-[#49636b]">Donación y trasplante de órganos y tejidos</p></div>
-        <button class="focus-ring rounded-lg px-3 py-2 text-sm text-[#49636b] hover:bg-[#f1f6f7] lg:hidden" @click="showToken = true">{{ auth.isAuthenticated ? "JWT" : "Configurar" }}</button>
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-[#6b8790]">Gestión operativa</p>
+          <p class="mt-1 text-sm text-[#49636b]">Donación y trasplante de órganos y tejidos · GODT Regional 3</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <RouterLink
+            to="/acceso"
+            class="focus-ring rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 lg:hidden"
+          >
+            {{ auth.isAuthenticated ? "Sesión" : "Acceso" }}
+          </RouterLink>
+          <button class="focus-ring rounded-lg px-3 py-2 text-sm text-[#49636b] hover:bg-[#f1f6f7] lg:hidden" @click="showToken = true">
+            JWT
+          </button>
+        </div>
       </header>
-      <main class="mx-auto max-w-[1192px] p-5 sm:p-8 lg:py-10"><slot><RouterView /></slot></main>
+      <main class="mx-auto max-w-[1192px] p-5 sm:p-8 lg:py-10 w-full min-w-0"><slot><RouterView /></slot></main>
     </div>
-    <div v-if="showToken" class="fixed inset-0 z-10 grid place-items-center bg-[#123c4a]/40 p-4" @click.self="showToken = false">
-      <form class="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl" @submit.prevent="saveToken">
-        <h2 class="text-lg font-bold text-[#17313b]">Token de acceso</h2>
-        <p class="mt-2 text-sm text-[#6b8790]">El backend no expone login. Pega aquí un JWT emitido por tu proveedor de identidad.</p>
-        <textarea v-model="tokenDraft" class="focus-ring mt-5 min-h-28 w-full rounded-xl border border-[#cbdcdf] p-3 text-sm" placeholder="eyJ..." />
-        <div class="mt-5 flex justify-end gap-3"><button type="button" class="focus-ring rounded-lg px-4 py-2 text-sm text-[#49636b]" @click="showToken = false">Cancelar</button><button class="focus-ring rounded-lg bg-[#123c4a] px-4 py-2 text-sm font-semibold text-white" type="submit">Guardar</button></div>
+    <div v-if="showToken" class="fixed inset-0 z-50 grid place-items-center bg-[#123c4a]/50 p-4 backdrop-blur-xs" @click.self="showToken = false">
+      <form class="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl space-y-4" @submit.prevent="saveToken">
+        <div>
+          <h2 class="text-lg font-bold text-[#17313b]">Token de acceso institucional</h2>
+          <p class="mt-1 text-xs text-[#6b8790]">
+            Puede ingresar a través del <RouterLink to="/acceso" class="text-teal-600 underline font-medium" @click="showToken = false">formulario institucional de acceso</RouterLink> o pegar directamente un token JWT Bearer válido.
+          </p>
+        </div>
+        <textarea v-model="tokenDraft" class="focus-ring w-full min-h-28 rounded-xl border border-[#cbdcdf] p-3 text-xs font-mono" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." />
+        <div class="flex justify-end gap-3 pt-2 border-t border-slate-100">
+          <button type="button" class="focus-ring rounded-lg px-4 py-2 text-xs font-medium text-[#49636b] hover:bg-slate-100 cursor-pointer" @click="showToken = false">Cancelar</button>
+          <button class="focus-ring rounded-lg bg-[#123047] px-4 py-2 text-xs font-semibold text-white hover:bg-[#1a3f5c] cursor-pointer" type="submit">Guardar Token</button>
+        </div>
       </form>
     </div>
   </div>

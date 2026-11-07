@@ -25,6 +25,7 @@ import type {
 import PdfViewerModal from "../components/PdfViewerModal.vue";
 import { documentLifecycleService } from "../services/documentLifecycle";
 import type { GeneratedPdfDocument } from "../types/document-lifecycle";
+import { getApiError } from "../services/api";
 
 const route = useRoute();
 const router = useRouter();
@@ -94,6 +95,44 @@ const conflictsCount = computed(
     ).length,
 );
 
+const packageMetrics = computed(() => {
+  const docs = documentsSummary.value?.documents || [];
+  const total = docs.length || 23;
+  const pendingHomologation = docs.filter((d) => d.category === "PENDING_HOMOLOGATION").length;
+  const nonApplicable = docs.filter((d) => d.applicabilityStatus === "NO_APLICA").length;
+  // Posiciones operativas normativas homologadas
+  const normativeOperational = docs.filter((d) => d.category !== "PENDING_HOMOLOGATION");
+  const applicableOperational = normativeOperational.filter((d) => d.applicabilityStatus !== "NO_APLICA");
+  const completed = docs.filter((d) => d.status === "COMPLETADO").length;
+  const signed = docs.filter((d) => (d.status as string) === "FIRMADO" || (d.status as string) === "LIBERADO").length;
+  const inProgress = docs.filter((d) =>
+    ["EN_DILIGENCIAMIENTO", "EN_REVISION", "BLOQUEADO", "VALIDADO"].includes(d.status as string),
+  ).length;
+  const pending = docs.filter(
+    (d) =>
+      d.status === "PENDIENTE" &&
+      d.applicabilityStatus !== "NO_APLICA" &&
+      d.category !== "PENDING_HOMOLOGATION",
+  ).length;
+
+  const applicableCount = applicableOperational.length;
+  const finishedCount = completed + signed;
+  const percentage =
+    applicableCount > 0 ? Math.round((finishedCount / applicableCount) * 100) : 0;
+
+  return {
+    total,
+    pendingHomologation,
+    nonApplicable,
+    applicableCount,
+    completed,
+    signed,
+    inProgress,
+    pending,
+    percentage,
+  };
+});
+
 const showHistoryModal = ref(false);
 const historyTitle = ref("");
 const historyEntries = ref<ProcessCanonicalHistory[]>([]);
@@ -130,7 +169,7 @@ async function handleViewDocumentPdf(doc: ProcessDocument) {
     selectedProcessInstanceId.value = doc.currentInstanceId;
     showProcessPdfModal.value = true;
   } catch (err: any) {
-    alert(err?.message || "Error al consultar snapshot PDF.");
+    alert(getApiError(err));
   } finally {
     loadingPdfSnapshot.value = false;
   }
@@ -143,7 +182,7 @@ async function loadCanonical() {
   try {
     canonicalValues.value = await getProcessCanonicalValues(processId.value);
   } catch (err: any) {
-    canonicalError.value = err?.message || "Error al cargar marcadores canónicos.";
+    canonicalError.value = getApiError(err);
   } finally {
     loadingCanonical.value = false;
   }
@@ -165,7 +204,7 @@ async function handleViewHistory(val: ProcessCanonicalValue) {
       val.canonicalFieldKey,
     );
   } catch (err: any) {
-    alert(err?.message || "Error al consultar historial.");
+    alert(getApiError(err));
   } finally {
     loadingHistory.value = false;
   }
@@ -200,7 +239,7 @@ async function handleConfirmProcessConflict() {
     resolvingField.value = null;
     await loadCanonical();
   } catch (err: any) {
-    alert(err?.message || "Error al resolver conflicto.");
+    alert(getApiError(err));
   } finally {
     resolvingProcessConflict.value = false;
   }
@@ -395,46 +434,74 @@ function formatDate(iso?: string | null): string {
 </script>
 
 <template>
-  <div class="max-w-7xl mx-auto space-y-6 pb-12">
-      <!-- Barra superior / Header -->
-      <div class="flex flex-wrap items-center justify-between gap-4">
-        <div class="flex items-center gap-3">
+  <div class="max-w-7xl mx-auto space-y-6 pb-12 w-full min-w-0">
+      <!-- Barra superior / Header Responsivo (UI-02) -->
+      <div class="bg-white p-4 sm:p-5 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div class="flex items-start sm:items-center gap-3">
           <button
             type="button"
-            class="p-2 text-slate-500 hover:text-slate-800 rounded-lg hover:bg-slate-100 transition cursor-pointer"
+            class="p-2 text-slate-500 hover:text-slate-800 rounded-lg hover:bg-slate-100 transition cursor-pointer shrink-0 mt-0.5 sm:mt-0"
             @click="router.push('/procesos')"
+            title="Volver al listado de procesos"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
           </button>
-          <div>
-            <div class="flex items-center gap-3">
-              <h1 class="text-2xl font-bold font-mono text-slate-900">
+          <div class="space-y-1">
+            <div class="flex flex-wrap items-center gap-2.5">
+              <h1 class="text-xl sm:text-2xl font-bold font-mono text-slate-900 break-all">
                 {{ currentProcess?.processCode || "Cargando proceso..." }}
               </h1>
               <StatusBadge v-if="currentProcess" :status="currentProcess.status" />
+              <span
+                v-if="currentProcess?.donor?.rndCode"
+                class="px-2 py-0.5 text-xs font-mono font-bold bg-indigo-50 text-indigo-700 rounded-md border border-indigo-200"
+              >
+                RND: {{ currentProcess.donor.rndCode }}
+              </span>
             </div>
             <p class="text-xs text-slate-500">
-              Aperturado el {{ formatDate(currentProcess?.openedAt) }} en {{ currentProcess?.primaryIpsName }}
+              Aperturado el {{ formatDate(currentProcess?.openedAt) }} · {{ currentProcess?.primaryIpsName }}
             </p>
           </div>
         </div>
 
-        <!-- Selector de Estado -->
-        <div v-if="currentProcess" class="flex items-center gap-2">
-          <label class="text-xs font-semibold text-slate-500 uppercase">Estado del Proceso:</label>
-          <select
-            :value="currentProcess.status"
-            class="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 shadow-xs"
-            @change="onStatusChange"
-          >
-            <option value="EN_VALORACION">En Valoración</option>
-            <option value="EN_CURSO">En Curso</option>
-            <option value="COMPLETADO">Completado</option>
-            <option value="SUSPENDIDO">Suspendido</option>
-            <option value="CANCELADO">Cancelado</option>
-          </select>
+        <!-- Acciones Rápidas y Selector de Estado Responsivo -->
+        <div v-if="currentProcess" class="flex flex-wrap items-center gap-3 w-full md:w-auto justify-between md:justify-end border-t md:border-t-0 pt-3 md:pt-0 border-slate-100">
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 shadow-2xs"
+              @click="showInstModal = true"
+            >
+              <span>🏥</span>
+              <span>+ Institución</span>
+            </button>
+            <button
+              type="button"
+              class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 shadow-2xs"
+              @click="showPartModal = true"
+            >
+              <span>👤</span>
+              <span>+ Participante</span>
+            </button>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <label class="text-xs font-semibold text-slate-500 uppercase whitespace-nowrap">Estado:</label>
+            <select
+              :value="currentProcess.status"
+              class="px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-xs sm:text-sm font-medium text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 shadow-xs cursor-pointer"
+              @change="onStatusChange"
+            >
+              <option value="EN_VALORACION">En Valoración</option>
+              <option value="EN_CURSO">En Curso</option>
+              <option value="COMPLETADO">Completado</option>
+              <option value="SUSPENDIDO">Suspendido</option>
+              <option value="CANCELADO">Cancelado</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -496,7 +563,7 @@ function formatDate(iso?: string | null): string {
 
       <!-- SECCIÓN FASE B: PAQUETE DOCUMENTAL DE 23 POSICIONES -->
       <div v-if="activeMainTab === 'PACKAGE'" class="bg-white p-6 rounded-xl border border-slate-200 shadow-xs space-y-6">
-        <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+        <div class="flex flex-col 2xl:flex-row 2xl:items-center justify-between gap-4 border-b border-slate-100 pb-5">
           <div>
             <div class="flex items-center gap-2">
               <h2 class="text-lg font-bold text-slate-800">
@@ -511,43 +578,81 @@ function formatDate(iso?: string | null): string {
             </p>
           </div>
 
-          <!-- Barra de Progreso y Métricas Rápidas -->
-          <div v-if="documentsSummary" class="flex flex-col sm:flex-row items-center gap-6">
-            <div class="w-full sm:w-48 space-y-1.5">
+          <!-- Barra de Progreso y Métricas Rápidas (UI-03) -->
+          <div v-if="documentsSummary" class="flex flex-col sm:flex-row items-center gap-4 flex-wrap 2xl:flex-nowrap w-full 2xl:w-auto justify-end">
+            <div class="w-full sm:w-56 space-y-1.5 shrink-0">
               <div class="flex justify-between text-xs font-semibold">
                 <span class="text-slate-600">Avance Normativo</span>
-                <span class="text-indigo-600 font-mono font-bold">{{ documentsSummary.progressPercentage }}%</span>
+                <span class="text-indigo-600 font-mono font-bold">{{ packageMetrics.percentage }}%</span>
               </div>
-              <div class="w-full bg-slate-100 rounded-full h-2.5 overflow-hidden" title="Avance = (Completados + Firmados) / Aplicables * 100">
+              <div
+                class="w-full bg-slate-100 rounded-full h-3 overflow-hidden shadow-inner cursor-help"
+                :title="`Avance = (${packageMetrics.completed} Completados + ${packageMetrics.signed} Firmados) / ${packageMetrics.applicableCount} Aplicables × 100`"
+              >
                 <div
-                  class="bg-indigo-600 h-2.5 rounded-full transition-all duration-500"
-                  :style="{ width: `${documentsSummary.progressPercentage}%` }"
+                  class="bg-indigo-600 h-3 rounded-full transition-all duration-500"
+                  :style="{ width: `${packageMetrics.percentage}%` }"
                 ></div>
+              </div>
+              <div class="flex justify-between text-[10px] text-slate-400 font-mono">
+                <span>{{ packageMetrics.completed + packageMetrics.signed }} de {{ packageMetrics.applicableCount }} listos</span>
+                <span>{{ packageMetrics.pendingHomologation }} en homologación</span>
               </div>
             </div>
 
-            <div class="grid grid-cols-5 gap-2 text-center text-xs">
-              <div class="p-2 bg-slate-50 rounded-lg border border-slate-200">
+            <!-- Desglose de 6 Métricas Claras -->
+            <div class="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center text-xs w-full sm:w-auto">
+              <div class="p-2 bg-slate-50 rounded-lg border border-slate-200" title="Total de 23 posiciones previstas en el paquete regional">
                 <div class="text-slate-400 text-[10px] uppercase font-bold">Total</div>
-                <div class="font-bold text-slate-800 font-mono">{{ documentsSummary.totalPositions }}</div>
+                <div class="font-bold text-slate-800 font-mono">{{ packageMetrics.total }}</div>
               </div>
-              <div class="p-2 bg-blue-50/70 rounded-lg border border-blue-200">
+              <div class="p-2 bg-blue-50/70 rounded-lg border border-blue-200" title="Posiciones normativas con aplicabilidad activa en este proceso">
                 <div class="text-blue-600 text-[10px] uppercase font-bold">Aplicables</div>
-                <div class="font-bold text-blue-800 font-mono">{{ documentsSummary.applicableCount }}</div>
+                <div class="font-bold text-blue-800 font-mono">{{ packageMetrics.applicableCount }}</div>
               </div>
-              <div class="p-2 bg-emerald-50/70 rounded-lg border border-emerald-200">
+              <div class="p-2 bg-emerald-50/70 rounded-lg border border-emerald-200" title="Documentos con diligenciamiento completo y validado">
                 <div class="text-emerald-600 text-[10px] uppercase font-bold">Completos</div>
-                <div class="font-bold text-emerald-800 font-mono">{{ documentsSummary.completedCount }}</div>
+                <div class="font-bold text-emerald-800 font-mono">{{ packageMetrics.completed }}</div>
               </div>
-              <div class="p-2 bg-teal-50/70 rounded-lg border border-teal-200">
+              <div class="p-2 bg-teal-50/70 rounded-lg border border-teal-200" title="Documentos con snapshot oficial firmado o liberado">
                 <div class="text-teal-600 text-[10px] uppercase font-bold">Firmados</div>
-                <div class="font-bold text-teal-800 font-mono">{{ documentsSummary.signedCount || 0 }}</div>
+                <div class="font-bold text-teal-800 font-mono">{{ packageMetrics.signed }}</div>
               </div>
-              <div class="p-2 bg-zinc-100 rounded-lg border border-zinc-200">
+              <div class="p-2 bg-zinc-100 rounded-lg border border-zinc-200" title="Posiciones justificadas que no aplican a este donante específico">
                 <div class="text-zinc-600 text-[10px] uppercase font-bold">No Aplica</div>
-                <div class="font-bold text-zinc-700 font-mono">{{ documentsSummary.nonApplicableCount }}</div>
+                <div class="font-bold text-zinc-700 font-mono">{{ packageMetrics.nonApplicable }}</div>
+              </div>
+              <div class="p-2 bg-amber-50/80 rounded-lg border border-amber-200" title="Posiciones 20 a 23 en proceso de homologación institucional">
+                <div class="text-amber-700 text-[10px] uppercase font-bold">Pend. Homol.</div>
+                <div class="font-bold text-amber-900 font-mono">{{ packageMetrics.pendingHomologation }}</div>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- Leyenda desglosada y fórmula de avance (UI-03) -->
+        <div class="text-xs text-slate-600 bg-slate-50/90 p-3 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            <span class="text-base">📊</span>
+            <div>
+              <strong class="text-slate-800">Fórmula de Avance Normativo:</strong>
+              <span class="font-mono text-indigo-700 font-semibold ml-1">
+                ({{ packageMetrics.completed }} Completos + {{ packageMetrics.signed }} Firmados) / {{ packageMetrics.applicableCount }} Aplicables = {{ packageMetrics.percentage }}%
+              </span>
+            </div>
+          </div>
+          <div class="flex items-center gap-3 text-[11px] text-slate-500">
+            <span class="flex items-center gap-1">
+              <span class="w-2 h-2 rounded-full bg-blue-500"></span> 19 Normativos
+            </span>
+            <span>•</span>
+            <span class="flex items-center gap-1">
+              <span class="w-2 h-2 rounded-full bg-amber-500"></span> 4 Pendientes (Pos 20-23)
+            </span>
+            <span>•</span>
+            <span class="flex items-center gap-1">
+              <span class="w-2 h-2 rounded-full bg-zinc-400"></span> {{ packageMetrics.nonApplicable }} No Aplica
+            </span>
           </div>
         </div>
 
