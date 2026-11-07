@@ -7,6 +7,7 @@ export interface DashboardSummary {
       COMPLETADO: number;
       CANCELADO: number;
       SUSPENDIDO: number;
+      [key: string]: number;
     };
   };
   donors: {
@@ -15,16 +16,22 @@ export interface DashboardSummary {
       EN_VALORACION: number;
       ACTIVO: number;
       CERRADO: number;
+      [key: string]: number;
     };
   };
   documents: {
     total: number;
     byStatus: {
       PENDIENTE: number;
-      DILIGENCIADO: number;
-      VALIDADO: number;
+      EN_DILIGENCIAMIENTO?: number;
+      EN_REVISION?: number;
+      BLOQUEADO?: number;
+      PENDIENTE_FIRMAS?: number;
       FIRMADO: number;
+      COMPLETADO?: number;
       LIBERADO: number;
+      NO_APLICA?: number;
+      [key: string]: number | undefined;
     };
   };
   recentProcesses: Array<{

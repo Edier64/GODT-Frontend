@@ -163,15 +163,15 @@ onMounted(loadData);
           <div class="mt-3 space-y-1.5 border-t border-slate-100 pt-3 text-xs text-slate-600">
             <div class="flex justify-between">
               <span>Liberados / Firmados:</span>
-              <span class="font-bold text-emerald-600">{{ summary.documents.byStatus.LIBERADO + summary.documents.byStatus.FIRMADO }}</span>
+              <span class="font-bold text-emerald-600">{{ (summary.documents.byStatus.LIBERADO || 0) + (summary.documents.byStatus.FIRMADO || 0) }}</span>
             </div>
             <div class="flex justify-between">
-              <span>Diligenciados / Validados:</span>
-              <span class="font-bold text-blue-600">{{ summary.documents.byStatus.DILIGENCIADO + summary.documents.byStatus.VALIDADO }}</span>
+              <span>En Diligenciamiento / Revisión:</span>
+              <span class="font-bold text-blue-600">{{ (summary.documents.byStatus.EN_DILIGENCIAMIENTO || 0) + (summary.documents.byStatus.PENDIENTE_FIRMAS || 0) + (summary.documents.byStatus.EN_REVISION || 0) + (summary.documents.byStatus.BORRADOR || 0) + (summary.documents.byStatus.DILIGENCIADO || 0) + (summary.documents.byStatus.VALIDADO || 0) }}</span>
             </div>
             <div class="flex justify-between">
               <span>Pendientes:</span>
-              <span class="font-bold text-amber-600">{{ summary.documents.byStatus.PENDIENTE }}</span>
+              <span class="font-bold text-amber-600">{{ summary.documents.byStatus.PENDIENTE || 0 }}</span>
             </div>
           </div>
         </div>
