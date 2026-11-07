@@ -55,7 +55,7 @@ onBeforeUnmount(() => window.removeEventListener("godt:session-expired", handleS
         <div><p class="text-xs font-semibold uppercase tracking-[0.18em] text-[#6b8790]">Gestión operativa</p><p class="mt-1 text-sm text-[#49636b]">Donación y trasplante de órganos y tejidos</p></div>
         <button class="focus-ring rounded-lg px-3 py-2 text-sm text-[#49636b] hover:bg-[#f1f6f7] lg:hidden" @click="showToken = true">{{ auth.isAuthenticated ? "JWT" : "Configurar" }}</button>
       </header>
-      <main class="mx-auto max-w-[1192px] p-5 sm:p-8 lg:py-10"><RouterView /></main>
+      <main class="mx-auto max-w-[1192px] p-5 sm:p-8 lg:py-10"><slot><RouterView /></slot></main>
     </div>
     <div v-if="showToken" class="fixed inset-0 z-10 grid place-items-center bg-[#123c4a]/40 p-4" @click.self="showToken = false">
       <form class="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl" @submit.prevent="saveToken">
