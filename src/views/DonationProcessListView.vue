@@ -20,12 +20,20 @@ const donorsStore = useDonorsStore();
 
 const filterStatus = ref<string>("");
 const showModal = ref(false);
+const creationMode = ref<"EXISTING" | "NEW">("EXISTING");
 
 const form = reactive({
   donorId: "",
   primaryIpsName: "",
   processCode: "",
   notes: "",
+  newDonor: {
+    fullName: "",
+    documentNumber: "",
+    clinicalService: "UCI Adultos",
+    bloodGroup: "",
+    rhFactor: "",
+  },
 });
 
 onMounted(async () => {
@@ -42,10 +50,16 @@ async function handleFilter() {
 }
 
 function openCreateModal() {
+  creationMode.value = donorsStore.page.items.length > 0 ? "EXISTING" : "NEW";
   form.donorId = "";
   form.primaryIpsName = "";
   form.processCode = "";
   form.notes = "";
+  form.newDonor.fullName = "";
+  form.newDonor.documentNumber = "";
+  form.newDonor.clinicalService = "UCI Adultos";
+  form.newDonor.bloodGroup = "";
+  form.newDonor.rhFactor = "";
   showModal.value = true;
 }
 
@@ -57,14 +71,30 @@ function onDonorChange() {
 }
 
 async function handleCreate() {
-  if (!form.donorId || !form.primaryIpsName) return;
+  if (!form.primaryIpsName.trim()) return;
 
-  const result = await openProcess({
-    donorId: form.donorId,
-    primaryIpsName: form.primaryIpsName,
+  if (creationMode.value === "EXISTING" && !form.donorId) return;
+
+  const payload: any = {
+    primaryIpsName: form.primaryIpsName.trim(),
     processCode: form.processCode.trim() || undefined,
     notes: form.notes.trim() || undefined,
-  });
+  };
+
+  if (creationMode.value === "EXISTING") {
+    payload.donorId = form.donorId;
+  } else {
+    payload.donor = {
+      fullName: form.newDonor.fullName.trim() || undefined,
+      documentNumber: form.newDonor.documentNumber.trim() || undefined,
+      clinicalService: form.newDonor.clinicalService.trim() || undefined,
+      bloodGroup: form.newDonor.bloodGroup.trim() || undefined,
+      rhFactor: form.newDonor.rhFactor.trim() || undefined,
+      originatingIpsName: form.primaryIpsName.trim(),
+    };
+  }
+
+  const result = await openProcess(payload);
 
   if (result) {
     showModal.value = false;
@@ -214,13 +244,34 @@ function formatDate(iso: string): string {
           </div>
 
           <form class="p-6 space-y-4" @submit.prevent="handleCreate">
-            <div>
+            <!-- Modalidad de Donante: Existente vs Desde Cero -->
+            <div class="flex rounded-lg bg-slate-100 p-1 border border-slate-200">
+              <button
+                type="button"
+                class="flex-1 py-1.5 px-3 rounded-md text-xs font-semibold transition"
+                :class="creationMode === 'EXISTING' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'"
+                @click="creationMode = 'EXISTING'"
+              >
+                Seleccionar Donante Existente
+              </button>
+              <button
+                type="button"
+                class="flex-1 py-1.5 px-3 rounded-md text-xs font-semibold transition"
+                :class="creationMode === 'NEW' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'"
+                @click="creationMode = 'NEW'"
+              >
+                Iniciar Nuevo Donante (Desde Cero)
+              </button>
+            </div>
+
+            <!-- Modo Donante Existente -->
+            <div v-if="creationMode === 'EXISTING'">
               <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">
                 Donante Asociado *
               </label>
               <select
                 v-model="form.donorId"
-                required
+                :required="creationMode === 'EXISTING'"
                 class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
                 @change="onDonorChange"
               >
@@ -229,6 +280,64 @@ function formatDate(iso: string): string {
                   {{ d.fullName }} — {{ d.rndCode }} ({{ d.originatingIpsName }})
                 </option>
               </select>
+              <p v-if="donorsStore.page.items.length === 0" class="mt-1 text-xs text-amber-600">
+                No hay donantes previos. Puede usar la pestaña «Iniciar Nuevo Donante».
+              </p>
+            </div>
+
+            <!-- Modo Nuevo Donante Desde Cero -->
+            <div v-else class="space-y-3 p-3 bg-indigo-50/50 rounded-xl border border-indigo-100">
+              <div class="text-xs font-bold text-indigo-900">
+                Datos preliminares del potencial donante
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-medium text-slate-700 mb-1">Nombre completo / Preliminar</label>
+                  <input
+                    v-model="form.newDonor.fullName"
+                    type="text"
+                    placeholder="Ej. Donante en valoración"
+                    class="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-700 mb-1">Identificación / Cédula</label>
+                  <input
+                    v-model="form.newDonor.documentNumber"
+                    type="text"
+                    placeholder="Opcional si es no identificado"
+                    class="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+              </div>
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div class="sm:col-span-2">
+                  <label class="block text-xs font-medium text-slate-700 mb-1">Servicio Clínico</label>
+                  <input
+                    v-model="form.newDonor.clinicalService"
+                    type="text"
+                    placeholder="Ej. UCI Adultos / Urgencias"
+                    class="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                  />
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-700 mb-1">Grupo y RH</label>
+                  <div class="flex gap-1">
+                    <input
+                      v-model="form.newDonor.bloodGroup"
+                      type="text"
+                      placeholder="O"
+                      class="w-1/2 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 text-center"
+                    />
+                    <input
+                      v-model="form.newDonor.rhFactor"
+                      type="text"
+                      placeholder="+"
+                      class="w-1/2 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 text-center"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div>

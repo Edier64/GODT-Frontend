@@ -136,7 +136,6 @@ async function save(propagate = true) {
 
   const saved = await controller.save(instanceId, {
     responseData: form.value.values,
-    sourceProvenance: form.value.provenance,
   });
 
   if (!saved) {
