@@ -3,7 +3,10 @@ export type DossierExportType = "FULL_ZIP" | "CONSOLIDATED_PDF" | "INDEX_ONLY";
 export type DossierExportStatus = "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "EXPIRED";
 
 export interface DossierSignatureItem {
+  attestationId?: string;
   participantId?: string;
+  documentInstanceId?: string;
+  versionNumber?: number;
   signerRole: string;
   signerName: string;
   signerDocument?: string | null;
@@ -12,6 +15,7 @@ export interface DossierSignatureItem {
   documentPdfSha256?: string;
   signatureEvidenceSha256?: string | null;
   attestationDigest?: string;
+  attestationDeclaration?: string;
   snapshotSha256?: string | null;
   hasCryptographicSignature?: boolean;
   attestationLevel?: "ATESTA_MANUAL_INTERNA" | "FIRMA_ELECTRONICA_SIMPLE" | "DIGITAL_CERTIFICADA_BLOQUEADA";
