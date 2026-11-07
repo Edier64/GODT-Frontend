@@ -395,8 +395,7 @@ function formatDate(iso?: string | null): string {
 </script>
 
 <template>
-  <AppLayout>
-    <div class="max-w-7xl mx-auto space-y-6 pb-12">
+  <div class="max-w-7xl mx-auto space-y-6 pb-12">
       <!-- Barra superior / Header -->
       <div class="flex flex-wrap items-center justify-between gap-4">
         <div class="flex items-center gap-3">
@@ -1546,5 +1545,4 @@ function formatDate(iso?: string | null): string {
       :document-title="selectedProcessPdfDocTitle"
       @close="showProcessPdfModal = false"
     />
-  </AppLayout>
 </template>
