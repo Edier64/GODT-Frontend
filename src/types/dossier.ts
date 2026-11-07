@@ -9,7 +9,10 @@ export interface DossierSignatureItem {
   signerDocument?: string | null;
   signatureType: string;
   signedAt: string | null;
-  snapshotSha256: string | null;
+  documentPdfSha256?: string;
+  signatureEvidenceSha256?: string | null;
+  attestationDigest?: string;
+  snapshotSha256?: string | null;
   hasCryptographicSignature?: boolean;
   attestationLevel?: "ATESTA_MANUAL_INTERNA" | "FIRMA_ELECTRONICA_SIMPLE" | "DIGITAL_CERTIFICADA_BLOQUEADA";
 }
@@ -83,6 +86,8 @@ export interface DossierManifest {
   processCode: string;
   donorId: string;
   donorRndCode: string;
+  donorDocumentMasked?: string | null;
+  donorFullNameMasked?: string | null;
   primaryIpsName: string;
   generatedAt: string;
   generatedBy: {
