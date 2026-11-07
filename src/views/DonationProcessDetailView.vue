@@ -2383,68 +2383,123 @@ function formatDate(iso?: string | null): string {
               :class="{
                 'bg-emerald-50 border-emerald-300 text-emerald-950': verificationReport.overallStatus === 'INTEGRITY_VERIFIED',
                 'bg-rose-50 border-rose-300 text-rose-950': verificationReport.overallStatus === 'INTEGRITY_COMPROMISED',
+                'bg-amber-50 border-amber-300 text-amber-950': verificationReport.overallStatus === 'VERIFICATION_FAILED',
               }"
             >
               <div class="flex items-center gap-3.5">
                 <span class="text-3xl">
-                  {{ verificationReport.overallStatus === 'INTEGRITY_VERIFIED' ? '✅' : '❌' }}
+                  {{
+                    verificationReport.overallStatus === 'INTEGRITY_VERIFIED'
+                      ? '✅'
+                      : verificationReport.overallStatus === 'VERIFICATION_FAILED'
+                      ? '⚠️'
+                      : '❌'
+                  }}
                 </span>
                 <div>
                   <h4 class="text-base font-bold">
                     {{
                       verificationReport.overallStatus === 'INTEGRITY_VERIFIED'
-                        ? 'INTEGRIDAD COMPLETA VERIFICADA (100% OK)'
-                        : 'ALERTA: INTEGRIDAD COMPROMETIDA'
+                        ? 'INTEGRIDAD FORENSE COMPLETA (100% VERIFICADA)'
+                        : verificationReport.overallStatus === 'VERIFICATION_FAILED'
+                        ? 'FALLO EN VERIFICACIÓN DE ALMACENAMIENTO'
+                        : 'ALERTA CRÍTICA: INTEGRIDAD COMPROMETIDA'
                     }}
                   </h4>
                   <p class="text-xs opacity-90 mt-0.5">
                     {{
                       verificationReport.overallStatus === 'INTEGRITY_VERIFIED'
-                        ? 'Todos los binarios almacenados coinciden exactamente con sus sellos criptográficos SHA-256 registrados.'
-                        : 'Se detectaron discrepancias entre los archivos almacenados y los registros firmados.'
+                        ? 'El paquete ZIP, el manifiesto y todos los archivos coinciden byte a byte con los registros criptográficos.'
+                        : verificationReport.overallStatus === 'VERIFICATION_FAILED'
+                        ? 'No se pudo acceder al archivo en almacenamiento para completar la auditoría.'
+                        : 'Se detectaron archivos modificados, alterados, faltantes o discrepancias con PostgreSQL.'
                     }}
                   </p>
                 </div>
               </div>
 
-              <div class="flex items-center gap-3 text-xs font-mono font-bold">
+              <div class="flex items-center gap-2 text-xs font-mono font-bold">
                 <div class="px-3 py-1.5 bg-white/80 rounded-lg border border-current">
-                  {{ verificationReport.passedCount }} / {{ verificationReport.totalChecked }} verificados
+                  {{ verificationReport.correctFilesCount ?? verificationReport.passedCount }} / {{ verificationReport.totalFilesInspected ?? verificationReport.totalChecked }} archivos OK
                 </div>
               </div>
             </div>
 
-            <!-- Tabla de Archivos Inspeccionados -->
+            <!-- Desglose de Tres Niveles Criptográficos -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+              <!-- Nivel C: Hash Binario del ZIP -->
+              <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                <div class="flex items-center justify-between">
+                  <span class="font-bold text-slate-700">Nivel C: Hash Binario ZIP (PostgreSQL)</span>
+                  <span
+                    class="px-1.5 py-0.5 rounded text-[10px] font-bold"
+                    :class="verificationReport.packageHashMatches ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'"
+                  >
+                    {{ verificationReport.packageHashMatches ? 'COINCIDE' : 'DIVERGENCIA' }}
+                  </span>
+                </div>
+                <div class="font-mono text-[10px] text-slate-500 truncate" :title="verificationReport.actualPackageSha256">
+                  CALC: {{ verificationReport.actualPackageSha256 || 'N/A' }}
+                </div>
+              </div>
+
+              <!-- Nivel B: Digest Canónico del Manifiesto -->
+              <div class="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                <div class="flex items-center justify-between">
+                  <span class="font-bold text-slate-700">Nivel B: Digest Canónico del Manifiesto</span>
+                  <span
+                    class="px-1.5 py-0.5 rounded text-[10px] font-bold"
+                    :class="verificationReport.manifestDigestMatches ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'"
+                  >
+                    {{ verificationReport.manifestDigestMatches ? 'VÁLIDO' : 'ALTERADO' }}
+                  </span>
+                </div>
+                <div class="font-mono text-[10px] text-slate-500 truncate" :title="verificationReport.actualManifestDigest">
+                  DIGEST: {{ verificationReport.actualManifestDigest || 'N/A' }}
+                </div>
+              </div>
+            </div>
+
+            <!-- Tabla de Archivos Inspeccionados (Nivel A) -->
             <div class="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
               <table class="w-full text-left text-xs">
                 <thead class="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
                   <tr>
                     <th class="px-4 py-3">Tipo</th>
-                    <th class="px-4 py-3">Documento / Archivo</th>
-                    <th class="px-4 py-3">Hash Esperado vs Calculado</th>
-                    <th class="px-4 py-3 text-right">Resultado</th>
+                    <th class="px-4 py-3">Ruta Relativa / Archivo</th>
+                    <th class="px-4 py-3">Hash SHA-256 (Esperado vs Calculado)</th>
+                    <th class="px-4 py-3 text-right">Estado</th>
                   </tr>
                 </thead>
                 <tbody class="divide-y divide-slate-100 bg-white">
-                  <tr v-for="item in verificationReport.items" :key="item.codeOrName" class="hover:bg-slate-50/60 transition">
+                  <tr v-for="item in verificationReport.items" :key="item.relativePath || item.fileName" class="hover:bg-slate-50/60 transition">
                     <td class="px-4 py-3 font-semibold text-slate-600">
                       {{ item.itemType }}
                     </td>
                     <td class="px-4 py-3 font-mono text-slate-800">
-                      {{ item.codeOrName }}
+                      <div>{{ item.relativePath || item.fileName }}</div>
+                      <div v-if="item.details" class="text-[10px] text-slate-400 font-sans mt-0.5">
+                        {{ item.details }}
+                      </div>
                     </td>
                     <td class="px-4 py-3 font-mono text-[10px] space-y-0.5">
-                      <div class="text-slate-500">
+                      <div class="text-slate-500 truncate max-w-[280px]" :title="item.expectedSha256">
                         <span class="text-slate-400">EXP:</span> {{ item.expectedSha256 }}
                       </div>
-                      <div :class="item.matches ? 'text-emerald-700' : 'text-rose-700 font-bold'">
+                      <div :class="item.matches ? 'text-emerald-700' : 'text-rose-700 font-bold'" class="truncate max-w-[280px]" :title="item.actualSha256">
                         <span class="text-slate-400">ACT:</span> {{ item.actualSha256 }}
                       </div>
                     </td>
                     <td class="px-4 py-3 text-right">
                       <span
                         class="px-2 py-0.5 rounded text-[10px] font-bold"
-                        :class="item.matches ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'"
+                        :class="{
+                          'bg-emerald-100 text-emerald-800': item.status === 'OK',
+                          'bg-rose-100 text-rose-800': item.status === 'ALTERED',
+                          'bg-amber-100 text-amber-800': item.status === 'MISSING',
+                          'bg-purple-100 text-purple-800': item.status === 'UNEXPECTED',
+                          'bg-slate-100 text-slate-700': item.status === 'ERROR',
+                        }"
                       >
                         {{ item.status }}
                       </span>
