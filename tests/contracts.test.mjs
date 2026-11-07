@@ -43,6 +43,27 @@ test("frontend services preserve the verified donor, document, OCR and engine ro
   assert.match(finalization, /documentInstancesService\.validate/);
 });
 
+test("frontend dossier service preserves the 7 verified endpoints (Fase E)", async () => {
+  const dossier = await source("services/dossier.ts");
+  const dossierTypes = await source("types/dossier.ts");
+
+  for (const route of [
+    "/donation-processes/${processId}/dossier/exports",
+    "/donation-processes/${processId}/dossier/exports/${exportId}",
+    "/donation-processes/${processId}/dossier/exports/${exportId}/download",
+    "/donation-processes/${processId}/dossier/exports/${exportId}/consolidated-pdf",
+    "/donation-processes/${processId}/dossier/exports/${exportId}/manifest",
+    "/donation-processes/${processId}/dossier/exports/${exportId}/verify",
+  ]) {
+    assert.match(dossier, new RegExp(route.replace(/[${}]/g, "\\$&")));
+  }
+
+  assert.match(dossierTypes, /export type DossierExportType/);
+  assert.match(dossierTypes, /export type DossierExportStatus/);
+  assert.match(dossierTypes, /export interface DossierManifest/);
+  assert.match(dossierTypes, /export interface IntegrityVerificationReport/);
+});
+
 test("real API authentication smoke test", { skip: process.env.GODT_RUN_REAL_API !== "1" }, async () => {
   const baseUrl = process.env.GODT_API_BASE_URL || "http://localhost:3000/api/v1";
   const response = await fetch(`${baseUrl}/donors`);
