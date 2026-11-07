@@ -1,8 +1,15 @@
 import { api } from "./api";
 import type { DocumentUploadInput, SourceDocument } from "../types/documents";
 
-export const MAX_DOCUMENT_SIZE = 10 * 1024 * 1024;
-export const ALLOWED_DOCUMENT_TYPES = ["application/pdf", "image/png", "image/jpeg"] as const;
+export const MAX_DOCUMENT_SIZE = 20 * 1024 * 1024;
+export const ALLOWED_DOCUMENT_TYPES = [
+  "application/pdf",
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/msword",
+] as const;
 
 export interface UploadProgress {
   loaded: number;
@@ -13,6 +20,11 @@ export interface UploadProgress {
 export const documentsService = {
   async list(donorId: string): Promise<SourceDocument[]> {
     const { data } = await api.get<SourceDocument[]>(`/donors/${donorId}/documents`);
+    return data;
+  },
+
+  async listForProcess(processId: string): Promise<SourceDocument[]> {
+    const { data } = await api.get<SourceDocument[]>(`/processes/${processId}/documents`);
     return data;
   },
 
@@ -30,6 +42,28 @@ export const documentsService = {
     body.append("file", input.file);
     body.append("documentCategory", input.documentCategory);
     const { data } = await api.post<SourceDocument>(`/donors/${donorId}/documents`, body, {
+      headers: { "Content-Type": "multipart/form-data" },
+      onUploadProgress: (event) => {
+        const total = event.total ?? input.file.size;
+        onProgress?.({
+          loaded: event.loaded,
+          total,
+          percentage: total ? Math.round((event.loaded / total) * 100) : 0
+        });
+      }
+    });
+    return data;
+  },
+
+  async uploadForProcess(
+    processId: string,
+    input: DocumentUploadInput,
+    onProgress?: (progress: UploadProgress) => void
+  ): Promise<SourceDocument> {
+    const body = new FormData();
+    body.append("file", input.file);
+    body.append("documentCategory", input.documentCategory);
+    const { data } = await api.post<SourceDocument>(`/processes/${processId}/documents`, body, {
       headers: { "Content-Type": "multipart/form-data" },
       onUploadProgress: (event) => {
         const total = event.total ?? input.file.size;

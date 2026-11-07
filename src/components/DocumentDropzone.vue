@@ -25,10 +25,10 @@ function onDrop(event: DragEvent) {
     @dragleave.prevent="dragging = false"
     @drop.prevent="onDrop"
   >
-    <input ref="input" class="hidden" type="file" accept=".pdf,.png,.jpg,.jpeg,application/pdf,image/png,image/jpeg" :disabled="disabled" @change="receive(($event.target as HTMLInputElement).files?.[0])" />
+    <input ref="input" class="hidden" type="file" accept=".pdf,.png,.jpg,.jpeg,.docx,application/pdf,image/png,image/jpeg,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword" :disabled="disabled" @change="receive(($event.target as HTMLInputElement).files?.[0])" />
     <div class="mx-auto grid h-11 w-11 place-items-center rounded-full bg-[#e6f7f4] text-[#159c9a]">↑</div>
     <p class="mt-3 text-sm font-semibold text-[#17313b]">Arrastra el documento aquí</p>
-    <p class="mt-1 text-xs text-[#789098]">PDF, PNG o JPEG · máximo 10 MiB</p>
+    <p class="mt-1 text-xs text-[#789098]">PDF, PNG, JPG o DOCX · máximo 20 MiB</p>
     <button type="button" class="focus-ring mt-4 rounded-lg border border-[#b8d2d7] px-4 py-2 text-xs font-semibold text-[#1e5575] hover:bg-white" :disabled="disabled" @click="choose">Seleccionar archivo</button>
   </div>
 </template>
