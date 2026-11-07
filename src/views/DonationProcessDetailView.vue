@@ -23,10 +23,15 @@ import type {
   ConflictResolutionStrategy,
 } from "../types/canonical";
 import PdfViewerModal from "../components/PdfViewerModal.vue";
+import DocumentDropzone from "../components/DocumentDropzone.vue";
 import { documentLifecycleService } from "../services/documentLifecycle";
 import type { GeneratedPdfDocument } from "../types/document-lifecycle";
 import { getApiError } from "../services/api";
 import { dossierService } from "../services/dossier";
+import { documentsService } from "../services/documents";
+import { ocrService } from "../services/ocr";
+import type { SourceDocument } from "../types/documents";
+import type { OcrField, OcrJob } from "../types/ocr";
 import type {
   DossierExportType,
   DossierManifest,
@@ -91,7 +96,7 @@ const partForm = reactive({
   notes: "",
 });
 
-const activeMainTab = ref<"PACKAGE" | "CANONICAL" | "DOSSIER">("PACKAGE");
+const activeMainTab = ref<"PACKAGE" | "CANONICAL" | "DOSSIER" | "SOURCES">("PACKAGE");
 const canonicalValues = ref<ProcessCanonicalValue[]>([]);
 const loadingCanonical = ref(false);
 const canonicalError = ref("");
@@ -101,6 +106,28 @@ const conflictsCount = computed(
       (v) => v.conflictStatus === "CONFLICT_DETECTED",
     ).length,
 );
+
+// --- ESTADO FASE G.1: DOCUMENTOS FUENTE & OCR / IA ---
+const sourceDocuments = ref<SourceDocument[]>([]);
+const loadingSources = ref(false);
+const sourceError = ref("");
+const showUploadSourceModal = ref(false);
+const uploadSourceFile = ref<File | null>(null);
+const uploadSourceCategory = ref("CLINICAL_SOURCE");
+const uploadingSource = ref(false);
+const uploadSourceProgress = ref(0);
+
+const showOcrReviewModal = ref(false);
+const selectedSourceDoc = ref<SourceDocument | null>(null);
+const activeOcrJob = ref<OcrJob | null>(null);
+const extractedOcrFields = ref<OcrField[]>([]);
+const loadingOcr = ref(false);
+const editingFieldId = ref<string | null>(null);
+const editFieldValue = ref<string>("");
+const validatingFieldId = ref<string | null>(null);
+const propagatingFieldId = ref<string | null>(null);
+const propagatedSuccessMap = ref<Record<string, boolean>>({});
+const propagatingAll = ref(false);
 
 // --- ESTADO FASE E: EXPEDIENTE CONSOLIDADO ---
 const dossierExports = ref<ProcessDossierExport[]>([]);
@@ -442,12 +469,187 @@ function formatBytes(bytes?: number | null): string {
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 }
 
+async function loadSources() {
+  if (!processId.value) return;
+  loadingSources.value = true;
+  sourceError.value = "";
+  try {
+    sourceDocuments.value = await documentsService.listForProcess(processId.value);
+  } catch (err: any) {
+    sourceError.value = getApiError(err);
+  } finally {
+    loadingSources.value = false;
+  }
+}
+
+async function switchToSourcesTab() {
+  activeMainTab.value = "SOURCES";
+  await loadSources();
+}
+
+function handleOpenUploadSourceModal() {
+  uploadSourceFile.value = null;
+  uploadSourceCategory.value = "CLINICAL_SOURCE";
+  uploadSourceProgress.value = 0;
+  showUploadSourceModal.value = true;
+}
+
+function handleSourceFileSelected(file: File | null) {
+  uploadSourceFile.value = file;
+}
+
+async function handleExecuteUploadSource() {
+  if (!uploadSourceFile.value || !processId.value) return;
+  uploadingSource.value = true;
+  uploadSourceProgress.value = 0;
+  try {
+    await documentsService.uploadForProcess(
+      processId.value,
+      {
+        file: uploadSourceFile.value,
+        documentCategory: uploadSourceCategory.value,
+      },
+      (p) => {
+        uploadSourceProgress.value = p.percentage;
+      },
+    );
+    showUploadSourceModal.value = false;
+    await loadSources();
+  } catch (err: any) {
+    alert("Error al cargar documento fuente: " + getApiError(err));
+  } finally {
+    uploadingSource.value = false;
+  }
+}
+
+async function handleDownloadSource(doc: SourceDocument) {
+  try {
+    await documentsService.download(doc.id, doc.originalFilename);
+  } catch (err: any) {
+    alert("Error al descargar documento: " + getApiError(err));
+  }
+}
+
+async function handleStartOcr(doc: SourceDocument) {
+  loadingOcr.value = true;
+  try {
+    const job = await ocrService.start(doc.id);
+    activeOcrJob.value = job;
+    await loadSources();
+    await handleOpenOcrReview(doc);
+  } catch (err: any) {
+    alert("Error al iniciar OCR/IA: " + getApiError(err));
+  } finally {
+    loadingOcr.value = false;
+  }
+}
+
+async function handleOpenOcrReview(doc: SourceDocument) {
+  selectedSourceDoc.value = doc;
+  loadingOcr.value = true;
+  showOcrReviewModal.value = true;
+  editingFieldId.value = null;
+  try {
+    const job: any = doc.ocrJobs?.[0];
+    if (job) {
+      activeOcrJob.value = job;
+      extractedOcrFields.value = job.extractedFields || [];
+      if (!extractedOcrFields.value.length) {
+        const fields = await ocrService.fields(job.id);
+        extractedOcrFields.value = fields;
+      }
+    } else {
+      const newJob = await ocrService.start(doc.id);
+      activeOcrJob.value = newJob;
+      const jobDetails = await ocrService.getJob(newJob.id);
+      extractedOcrFields.value = jobDetails.fields || [];
+      await loadSources();
+    }
+  } catch (err: any) {
+    alert("Error al cargar campos OCR/IA: " + getApiError(err));
+  } finally {
+    loadingOcr.value = false;
+  }
+}
+
+async function handleValidateOcrField(
+  field: OcrField,
+  status: "CONFIRMADO" | "MODIFICADO" | "RECHAZADO",
+  customVal?: string,
+) {
+  validatingFieldId.value = field.id;
+  try {
+    const updated = await ocrService.validate(field.id, {
+      status,
+      confirmedValue:
+        status === "MODIFICADO" ? customVal || editFieldValue.value : undefined,
+    });
+    const idx = extractedOcrFields.value.findIndex((f) => f.id === field.id);
+    if (idx !== -1) {
+      extractedOcrFields.value[idx] = updated;
+    }
+    editingFieldId.value = null;
+  } catch (err: any) {
+    alert("Error al validar campo: " + getApiError(err));
+  } finally {
+    validatingFieldId.value = null;
+  }
+}
+
+async function handlePropagateField(field: OcrField) {
+  if (!processId.value) return;
+  if (field.validationStatus === "PENDIENTE") {
+    await handleValidateOcrField(field, "CONFIRMADO");
+  }
+  if (field.validationStatus === "RECHAZADO") {
+    alert("No se puede propagar un campo que ha sido rechazado.");
+    return;
+  }
+  propagatingFieldId.value = field.id;
+  try {
+    await ocrService.propagateToProcess(processId.value, field.id);
+    propagatedSuccessMap.value[field.id] = true;
+    await loadCanonical();
+  } catch (err: any) {
+    alert("Error al propagar campo a datos canónicos: " + getApiError(err));
+  } finally {
+    propagatingFieldId.value = null;
+  }
+}
+
+async function handlePropagateAllConfirmed() {
+  if (!processId.value || !extractedOcrFields.value.length) return;
+  propagatingAll.value = true;
+  let successCount = 0;
+  try {
+    for (const field of extractedOcrFields.value) {
+      if (
+        field.validationStatus === "CONFIRMADO" ||
+        field.validationStatus === "MODIFICADO"
+      ) {
+        try {
+          await ocrService.propagateToProcess(processId.value, field.id);
+          propagatedSuccessMap.value[field.id] = true;
+          successCount++;
+        } catch {
+          // Continuar con los siguientes
+        }
+      }
+    }
+    await loadCanonical();
+    alert(`Se propagaron exitosamente ${successCount} campo(s) al diccionario canónico del proceso.`);
+  } finally {
+    propagatingAll.value = false;
+  }
+}
+
 onMounted(async () => {
   if (processId.value) {
     await loadProcess(processId.value);
     await loadDocuments(processId.value);
     await loadCanonical();
     await loadDossierExports();
+    await loadSources();
   }
 });
 
@@ -762,6 +964,20 @@ function formatDate(iso?: string | null): string {
             class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500 text-white animate-pulse"
           >
             {{ activeExport.progressPercent }}%
+          </span>
+        </button>
+        <button
+          type="button"
+          class="px-5 py-3 text-sm font-semibold border-b-2 transition cursor-pointer flex items-center gap-2"
+          :class="activeMainTab === 'SOURCES' ? 'border-[#159c9a] text-[#159c9a] bg-white font-bold' : 'border-transparent text-slate-500 hover:text-slate-700'"
+          @click="switchToSourcesTab"
+        >
+          <span>📑 Documentos Fuente & OCR / IA (Fase G.1)</span>
+          <span
+            v-if="sourceDocuments.length > 0"
+            class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#e6f7f4] text-[#17817d]"
+          >
+            {{ sourceDocuments.length }}
           </span>
         </button>
       </div>
@@ -1690,6 +1906,204 @@ function formatDate(iso?: string | null): string {
         </div>
       </div>
 
+      <!-- SECCIÓN FASE G.1: DOCUMENTOS FUENTE & OCR / IA -->
+      <div v-if="activeMainTab === 'SOURCES'" class="bg-white p-6 rounded-xl border border-slate-200 shadow-xs space-y-6">
+        <div class="flex flex-col 2xl:flex-row 2xl:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+          <div>
+            <div class="flex items-center gap-2">
+              <h2 class="text-lg font-bold text-slate-800">
+                Documentos Fuente y Extracción Inteligente OCR / IA — Fase G.1
+              </h2>
+              <span class="px-2.5 py-0.5 bg-teal-50 text-teal-800 text-xs font-semibold rounded-full border border-teal-200">
+                Almacenamiento Privado & OCR Local
+              </span>
+            </div>
+            <p class="text-xs text-slate-500 mt-1">
+              Carga historias clínicas, epicrisis, paraclínicos o actas hospitalarias para extraer marcadores canónicos mediante OCR e IA local. Los candidatos confirmados se propagan directamente al proceso.
+            </p>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <button
+              type="button"
+              class="px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5"
+              :disabled="loadingSources"
+              @click="loadSources"
+            >
+              <span>🔄</span> Actualizar
+            </button>
+
+            <button
+              type="button"
+              class="px-4 py-2 bg-[#123047] hover:bg-[#1e5575] text-white rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer flex items-center gap-1.5"
+              @click="handleOpenUploadSourceModal"
+            >
+              <span>📤</span> Cargar Documento Fuente
+            </button>
+          </div>
+        </div>
+
+        <!-- Métricas Rápidas de Documentos Fuente -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div class="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+            <div class="text-[11px] font-semibold text-slate-500 uppercase">Total Documentos</div>
+            <div class="text-xl font-bold text-slate-800 mt-1">{{ sourceDocuments.length }}</div>
+            <div class="text-[10px] text-slate-400 mt-0.5">Asociados a este proceso</div>
+          </div>
+          <div class="p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+            <div class="text-[11px] font-semibold text-emerald-700 uppercase">Procesados con Éxito</div>
+            <div class="text-xl font-bold text-emerald-800 mt-1">
+              {{ sourceDocuments.filter((d) => d.ocrJobs && d.ocrJobs[0]?.status === 'COMPLETADO').length }}
+            </div>
+            <div class="text-[10px] text-emerald-600 mt-0.5">Con campos canónicos extraídos</div>
+          </div>
+          <div class="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+            <div class="text-[11px] font-semibold text-amber-700 uppercase">Pendientes OCR</div>
+            <div class="text-xl font-bold text-amber-800 mt-1">
+              {{ sourceDocuments.filter((d) => !d.ocrJobs || d.ocrJobs[0]?.status === 'EN_COLA').length }}
+            </div>
+            <div class="text-[10px] text-amber-600 mt-0.5">Listos para procesar</div>
+          </div>
+          <div class="p-3 bg-purple-50 border border-purple-200 rounded-lg">
+            <div class="text-[11px] font-semibold text-purple-700 uppercase">Extracción IA / Local</div>
+            <div class="text-xl font-bold text-purple-800 mt-1">100% Privado</div>
+            <div class="text-[10px] text-purple-600 mt-0.5">Cero fuga de datos sensibles</div>
+          </div>
+        </div>
+
+        <!-- Banner Explicativo -->
+        <div class="p-3 bg-blue-50/80 border border-blue-200/90 rounded-lg text-xs text-blue-900 leading-relaxed flex items-start gap-2">
+          <span class="text-base leading-none">🛡️</span>
+          <div>
+            <strong class="font-semibold">Aislamiento y Trazabilidad Documental:</strong> Los documentos fuente se almacenan en el volumen privado local bajo la ruta <code>donations/{{ currentProcess?.id }}/sources/</code>. El procesamiento OCR extrae capas de texto y analiza campos candidatos; ningún dato se convierte en valor canónico sin su previa <strong>confirmación humana</strong> en la interfaz.
+          </div>
+        </div>
+
+        <!-- Estado de Carga / Errores -->
+        <div v-if="loadingSources" class="space-y-2 py-6">
+          <div v-for="i in 3" :key="i" class="h-14 bg-slate-100 rounded-lg animate-pulse"></div>
+        </div>
+
+        <div v-else-if="sourceError" class="p-4 bg-rose-50 text-rose-700 rounded-lg text-xs border border-rose-200">
+          {{ sourceError }}
+        </div>
+
+        <!-- Sin Documentos Fuente -->
+        <div v-else-if="sourceDocuments.length === 0" class="py-12 text-center border-2 border-dashed border-slate-200 rounded-xl">
+          <div class="text-3xl mb-2">📑</div>
+          <h4 class="text-sm font-bold text-slate-700">No hay documentos fuente asociados a este proceso</h4>
+          <p class="text-xs text-slate-500 mt-1 max-w-md mx-auto">
+            Carga la primera historia clínica, epicrisis, resultado de laboratorio o acta en PDF, DOCX o imagen para ejecutar el OCR y extraer datos automáticamente.
+          </p>
+          <button
+            type="button"
+            class="mt-4 px-4 py-2 bg-[#123047] hover:bg-[#1e5575] text-white rounded-lg text-xs font-semibold cursor-pointer shadow-xs inline-flex items-center gap-1.5"
+            @click="handleOpenUploadSourceModal"
+          >
+            <span>📤</span> Cargar Documento Ahora
+          </button>
+        </div>
+
+        <!-- Tabla de Documentos Fuente -->
+        <div v-else class="border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold uppercase tracking-wider">
+              <tr>
+                <th class="px-4 py-3">Archivo / Tipo</th>
+                <th class="px-4 py-3">Clasificación</th>
+                <th class="px-4 py-3">Tamaño / Fecha</th>
+                <th class="px-4 py-3">Hash SHA-256</th>
+                <th class="px-4 py-3">Estado OCR / IA</th>
+                <th class="px-4 py-3 text-right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-100 bg-white">
+              <tr v-for="doc in sourceDocuments" :key="doc.id" class="hover:bg-slate-50/70 transition">
+                <td class="px-4 py-3">
+                  <div class="flex items-center gap-2">
+                    <span class="text-lg">
+                      {{ doc.mimeType.includes('pdf') ? '📄' : doc.mimeType.includes('word') ? '📝' : '🖼️' }}
+                    </span>
+                    <div>
+                      <div class="font-bold text-slate-800 break-all max-w-xs">{{ doc.originalFilename }}</div>
+                      <div class="text-[10px] text-slate-400 font-mono">{{ doc.mimeType }}</div>
+                    </div>
+                  </div>
+                </td>
+                <td class="px-4 py-3">
+                  <span class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                    {{ doc.documentCategory || 'CLINICAL_SOURCE' }}
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-slate-600">
+                  <div class="font-medium">{{ formatDate(doc.uploadedAt) }}</div>
+                  <div class="text-[10px] text-slate-400">Verificado localmente</div>
+                </td>
+                <td class="px-4 py-3 font-mono text-[10px] text-slate-500">
+                  <div class="truncate max-w-[140px]" :title="doc.sha256Hash">
+                    {{ doc.sha256Hash.substring(0, 16) }}...
+                  </div>
+                </td>
+                <td class="px-4 py-3">
+                  <span
+                    v-if="doc.ocrJobs && doc.ocrJobs[0]?.status === 'COMPLETADO'"
+                    class="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded text-[11px] font-semibold"
+                  >
+                    ✓ Procesado ({{ doc.ocrJobs[0].extractedFields?.length || 0 }} campos)
+                  </span>
+                  <span
+                    v-else-if="doc.ocrJobs && doc.ocrJobs[0]?.status === 'EN_COLA'"
+                    class="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded text-[11px] font-semibold animate-pulse"
+                  >
+                    ⏳ En cola de procesamiento
+                  </span>
+                  <span
+                    v-else-if="doc.ocrJobs && doc.ocrJobs[0]?.status === 'FALLIDO'"
+                    class="inline-flex items-center gap-1 px-2 py-0.5 bg-rose-50 text-rose-800 border border-rose-200 rounded text-[11px] font-semibold"
+                  >
+                    ⚠️ Falló OCR
+                  </span>
+                  <span
+                    v-else
+                    class="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[11px]"
+                  >
+                    Sin procesar
+                  </span>
+                </td>
+                <td class="px-4 py-3 text-right">
+                  <div class="flex items-center justify-end gap-1.5">
+                    <button
+                      type="button"
+                      class="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded text-xs font-medium cursor-pointer"
+                      title="Descargar archivo original"
+                      @click="handleDownloadSource(doc)"
+                    >
+                      Descargar
+                    </button>
+                    <button
+                      v-if="!doc.ocrJobs || doc.ocrJobs[0]?.status !== 'COMPLETADO'"
+                      type="button"
+                      class="px-2.5 py-1 bg-[#123047] hover:bg-[#1e5575] text-white rounded text-xs font-medium cursor-pointer disabled:opacity-50"
+                      :disabled="loadingOcr"
+                      @click="handleStartOcr(doc)"
+                    >
+                      Ejecutar OCR
+                    </button>
+                    <button
+                      type="button"
+                      class="px-2.5 py-1 bg-[#159c9a] hover:bg-[#17817d] text-white rounded text-xs font-medium cursor-pointer shadow-xs"
+                      @click="handleOpenOcrReview(doc)"
+                    >
+                      Revisar Extracción
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Modal Modificar Aplicabilidad -->
       <div
         v-if="showApplicabilityModal && selectedDocForApplicability"
@@ -2521,6 +2935,292 @@ function formatDate(iso?: string | null): string {
             type="button"
             class="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg cursor-pointer"
             @click="showVerificationModal = false"
+          >
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- MODAL FASE G.1: Cargar Documento Fuente -->
+    <div
+      v-if="showUploadSourceModal"
+      class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4"
+    >
+      <div class="bg-white w-full max-w-lg rounded-2xl shadow-xl border border-slate-200 overflow-hidden">
+        <div class="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+          <div>
+            <h3 class="text-base font-bold text-slate-800">Cargar Documento Fuente</h3>
+            <p class="text-xs text-slate-500">Almacenamiento privado local inmutable para OCR e IA</p>
+          </div>
+          <button
+            type="button"
+            class="text-slate-400 hover:text-slate-600 cursor-pointer text-lg"
+            @click="showUploadSourceModal = false"
+          >
+            ✕
+          </button>
+        </div>
+
+        <form class="p-6 space-y-4" @submit.prevent="handleExecuteUploadSource">
+          <DocumentDropzone :disabled="uploadingSource" @selected="handleSourceFileSelected" />
+
+          <div v-if="uploadSourceFile" class="p-3 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
+            <div class="truncate pr-2">
+              <div class="font-bold text-xs text-slate-800 truncate">{{ uploadSourceFile.name }}</div>
+              <div class="text-[10px] text-slate-400">{{ formatBytes(uploadSourceFile.size) }}</div>
+            </div>
+            <button
+              type="button"
+              class="text-xs text-rose-600 hover:underline shrink-0"
+              @click="uploadSourceFile = null"
+            >
+              Quitar
+            </button>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">
+              Clasificación Documental *
+            </label>
+            <select
+              v-model="uploadSourceCategory"
+              class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-xs text-slate-800 focus:ring-2 focus:ring-indigo-500 focus:outline-hidden"
+              :disabled="uploadingSource"
+            >
+              <option value="CLINICAL_SOURCE">Historia Clínica / Epicrisis / Paraclínicos</option>
+              <option value="AUXILIARY">Documento de Identidad / Registro Civil</option>
+              <option value="REFERENCE_FORMAT">Formato Físico Escaneado de Referencia</option>
+              <option value="AUTOPSY_LEGAL">Protocolo de Necropsia / Medicina Legal</option>
+              <option value="OTHER">Otro Documento Complementario</option>
+            </select>
+          </div>
+
+          <div v-if="uploadingSource" class="space-y-1.5 pt-2">
+            <div class="flex justify-between text-xs text-slate-600 font-semibold">
+              <span>Almacenando archivo y calculando SHA-256...</span>
+              <span>{{ uploadSourceProgress }}%</span>
+            </div>
+            <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+              <div class="bg-[#159c9a] h-2 rounded-full transition-all duration-300" :style="{ width: `${uploadSourceProgress}%` }"></div>
+            </div>
+          </div>
+
+          <div class="pt-2 flex justify-end gap-2 border-t border-slate-100">
+            <button
+              type="button"
+              class="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg cursor-pointer"
+              :disabled="uploadingSource"
+              @click="showUploadSourceModal = false"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              class="px-5 py-2 text-xs font-semibold text-white bg-[#123047] hover:bg-[#1e5575] rounded-lg cursor-pointer shadow-xs disabled:opacity-50"
+              :disabled="uploadingSource || !uploadSourceFile"
+            >
+              {{ uploadingSource ? "Cargando..." : "Subir y Guardar" }}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- MODAL FASE G.1: Revisión de Extracción OCR / IA y Propagación Canónica -->
+    <div
+      v-if="showOcrReviewModal && selectedSourceDoc"
+      class="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4"
+    >
+      <div class="bg-white w-full max-w-4xl rounded-2xl shadow-xl border border-slate-200 overflow-hidden max-h-[90vh] flex flex-col">
+        <div class="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+          <div class="flex items-center gap-3">
+            <span class="text-2xl">🔍</span>
+            <div>
+              <h3 class="text-base font-bold text-slate-800">
+                Revisión de Extracción OCR / IA y Propagación Canónica
+              </h3>
+              <p class="text-xs text-slate-500 font-mono truncate max-w-md">
+                {{ selectedSourceDoc.originalFilename }} ({{ selectedSourceDoc.documentCategory }})
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="text-slate-400 hover:text-slate-600 cursor-pointer text-lg"
+            @click="showOcrReviewModal = false"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div class="p-6 overflow-y-auto space-y-5 flex-1">
+          <!-- Banner de advertencia normativa -->
+          <div class="p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 leading-relaxed flex items-start gap-2">
+            <span class="text-base leading-none">⚠️</span>
+            <div>
+              <strong class="font-semibold">Principio de Confirmación Humana:</strong> Los valores extraídos por el motor OCR/IA son candidatos preliminares. Revise cada dato; puede aceptarlo, corregirlo o rechazarlo. Al presionar <strong>Propagar</strong>, los valores confirmados se inyectarán de forma trazable en el diccionario canónico de este proceso de donación.
+            </div>
+          </div>
+
+          <!-- Spinner si carga -->
+          <div v-if="loadingOcr" class="py-12 text-center space-y-3">
+            <span class="inline-block animate-spin text-3xl">🔄</span>
+            <p class="text-xs text-slate-500 font-semibold">Procesando extracción OCR / IA y consultando candidatos...</p>
+          </div>
+
+          <!-- Sin campos extraídos -->
+          <div v-else-if="!extractedOcrFields.length" class="py-10 text-center border-2 border-dashed border-slate-200 rounded-xl">
+            <div class="text-2xl mb-1">📋</div>
+            <p class="text-sm font-bold text-slate-700">No se encontraron campos estructurados automáticamente</p>
+            <p class="text-xs text-slate-400 mt-1">El archivo puede requerir una imagen de mayor contraste o no contiene etiquetas clínicas reconocidas.</p>
+          </div>
+
+          <!-- Tabla de Campos Extraídos -->
+          <div v-else class="space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+              <div>
+                <h4 class="text-xs font-bold text-slate-700 uppercase tracking-wider">
+                  Candidatos Extraídos ({{ extractedOcrFields.length }})
+                </h4>
+                <p class="text-[11px] text-slate-400">Verifique cada campo antes de incorporarlo a los formularios oficiales.</p>
+              </div>
+
+              <button
+                type="button"
+                class="px-3.5 py-1.5 bg-[#123047] hover:bg-[#1e5575] text-white text-xs font-semibold rounded-lg shadow-xs transition cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
+                :disabled="propagatingAll"
+                @click="handlePropagateAllConfirmed"
+              >
+                <span>🚀</span>
+                {{ propagatingAll ? "Propagando..." : "Propagar Confirmados al Proceso" }}
+              </button>
+            </div>
+
+            <div class="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+              <div
+                v-for="field in extractedOcrFields"
+                :key="field.id"
+                class="p-4 bg-white hover:bg-slate-50/60 transition flex flex-col md:flex-row md:items-center justify-between gap-4"
+              >
+                <div class="space-y-1.5 min-w-0 flex-1">
+                  <div class="flex items-center gap-2 flex-wrap">
+                    <span class="font-mono text-xs font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-200">
+                      {{ field.canonicalFieldKey }}
+                    </span>
+                    <span
+                      class="px-2 py-0.5 rounded text-[10px] font-bold"
+                      :class="{
+                        'bg-amber-100 text-amber-800': field.validationStatus === 'PENDIENTE',
+                        'bg-emerald-100 text-emerald-800': field.validationStatus === 'CONFIRMADO',
+                        'bg-blue-100 text-blue-800': field.validationStatus === 'MODIFICADO',
+                        'bg-rose-100 text-rose-800': field.validationStatus === 'RECHAZADO',
+                      }"
+                    >
+                      {{ field.validationStatus }}
+                    </span>
+                    <span class="text-[10px] text-slate-400 font-mono font-semibold">
+                      Confianza: {{ Math.round(Number(field.confidenceScore) * 100) }}%
+                    </span>
+                    <span v-if="propagatedSuccessMap[field.id]" class="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-[10px] font-bold">
+                      ✓ Propagado al Diccionario
+                    </span>
+                  </div>
+
+                  <!-- Valor candidato o formulario de edición -->
+                  <div v-if="editingFieldId === field.id" class="flex items-center gap-2 pt-1">
+                    <input
+                      v-model="editFieldValue"
+                      class="px-3 py-1.5 bg-slate-50 border border-slate-300 rounded text-xs text-slate-800 w-full max-w-sm focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                      placeholder="Ingrese el valor correcto"
+                    />
+                    <button
+                      type="button"
+                      class="px-3 py-1.5 bg-indigo-600 text-white rounded text-xs font-semibold cursor-pointer"
+                      @click="handleValidateOcrField(field, 'MODIFICADO', editFieldValue)"
+                    >
+                      Guardar
+                    </button>
+                    <button
+                      type="button"
+                      class="px-3 py-1.5 bg-slate-200 text-slate-600 rounded text-xs font-semibold cursor-pointer"
+                      @click="editingFieldId = null"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                  <div v-else class="flex items-baseline gap-2">
+                    <span class="text-xs text-slate-400 font-medium">Valor:</span>
+                    <span class="text-sm font-bold text-slate-800 font-mono bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
+                      {{ field.confirmedValue || field.candidateValue }}
+                    </span>
+                    <span v-if="field.confirmedValue && field.confirmedValue !== field.candidateValue" class="text-[10px] text-slate-400 line-through">
+                      (Original: {{ field.candidateValue }})
+                    </span>
+                  </div>
+
+                  <!-- Fragmento de origen (Snippet / BoundingBox) -->
+                  <div v-if="field.boundingBox" class="text-[10px] text-slate-400 flex items-center gap-1.5">
+                    <span>Fragmento fuente:</span>
+                    <span class="italic text-slate-600">"{{ (field.boundingBox as any).snippet || 'Texto detectado' }}"</span>
+                  </div>
+                </div>
+
+                <!-- Botones de Acción por Campo -->
+                <div class="flex items-center gap-1.5 shrink-0">
+                  <button
+                    v-if="field.validationStatus !== 'CONFIRMADO'"
+                    type="button"
+                    class="px-2.5 py-1 text-xs font-semibold bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded cursor-pointer transition"
+                    title="Aceptar este candidato sin modificaciones"
+                    :disabled="validatingFieldId === field.id"
+                    @click="handleValidateOcrField(field, 'CONFIRMADO')"
+                  >
+                    Aceptar
+                  </button>
+
+                  <button
+                    type="button"
+                    class="px-2.5 py-1 text-xs font-semibold bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-300 rounded cursor-pointer transition"
+                    title="Editar manualmente este valor"
+                    :disabled="validatingFieldId === field.id"
+                    @click="editingFieldId = field.id; editFieldValue = field.confirmedValue || field.candidateValue;"
+                  >
+                    Editar
+                  </button>
+
+                  <button
+                    v-if="field.validationStatus !== 'RECHAZADO'"
+                    type="button"
+                    class="px-2.5 py-1 text-xs font-semibold bg-rose-50 hover:bg-rose-100 text-rose-800 border border-rose-300 rounded cursor-pointer transition"
+                    title="Rechazar este valor extraído"
+                    :disabled="validatingFieldId === field.id"
+                    @click="handleValidateOcrField(field, 'RECHAZADO')"
+                  >
+                    Rechazar
+                  </button>
+
+                  <button
+                    v-if="field.validationStatus !== 'RECHAZADO'"
+                    type="button"
+                    class="px-3 py-1 text-xs font-bold bg-[#159c9a] hover:bg-[#17817d] text-white rounded cursor-pointer transition shadow-xs disabled:opacity-50"
+                    title="Inyectar en el diccionario canónico de este proceso"
+                    :disabled="propagatingFieldId === field.id || propagatedSuccessMap[field.id]"
+                    @click="handlePropagateField(field)"
+                  >
+                    {{ propagatingFieldId === field.id ? "Propagando..." : propagatedSuccessMap[field.id] ? "✓ Propagado" : "Propagar" }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="px-6 py-3 bg-slate-50 border-t border-slate-200 flex justify-end">
+          <button
+            type="button"
+            class="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg cursor-pointer"
+            @click="showOcrReviewModal = false"
           >
             Cerrar
           </button>

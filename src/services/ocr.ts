@@ -22,5 +22,13 @@ export const ocrService = {
   async validate(fieldId: string, input: ValidateOcrFieldInput): Promise<OcrField> {
     const { data } = await api.patch<OcrField>(`/ocr/fields/${fieldId}/validation`, input);
     return data;
+  },
+  async propagate(donorId: string, fieldId: string): Promise<OcrField> {
+    const { data } = await api.post<OcrField>(`/donors/${donorId}/clinical-data/propagate`, { fieldId });
+    return data;
+  },
+  async propagateToProcess(processId: string, fieldId: string): Promise<OcrField> {
+    const { data } = await api.post<OcrField>(`/processes/${processId}/ocr/propagate`, { fieldId });
+    return data;
   }
 };
