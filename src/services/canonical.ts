@@ -69,10 +69,13 @@ export async function resolveCanonicalConflict(
   processId: string,
   payload: ResolveCanonicalConflictPayload,
 ): Promise<PropagationResult> {
-  const response = await api.post<PropagationResult>(
-    `/donation-processes/${processId}/canonical-values/resolve-conflict`,
-    payload,
-  );
+  const url = payload.canonicalFieldKey
+    ? `/donation-processes/${processId}/canonical-values/${encodeURIComponent(payload.canonicalFieldKey)}/resolve-conflict`
+    : `/donation-processes/${processId}/canonical-values/resolve-conflict`;
+  const response = await api.post<PropagationResult>(url, {
+    ...payload,
+    resolvedValue: payload.manualValue,
+  });
   return response.data;
 }
 
