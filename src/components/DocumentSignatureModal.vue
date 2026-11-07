@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import { documentLifecycleService } from "../services/documentLifecycle";
 import type {
   DocumentParticipant,
@@ -30,12 +30,14 @@ const form = reactive({
   signerDocumentNumber: "",
   signerProfessionalId: "",
   signatureData: "",
-  attestationText: "Atestiguo bajo juramento y responsabilidad profesional que he revisado el contenido de este documento y confirmo la veracidad de la información clínica registrada en el proceso de donación.",
+  attestationText:
+    "Atestiguo bajo juramento y responsabilidad profesional que he revisado el contenido de este documento y confirmo la veracidad de la información clínica registrada en el proceso de donación.",
   acceptAttestation: true,
 });
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 const isDrawing = ref(false);
+const hasDrawn = ref(false);
 
 // Cuando se selecciona un participante del selector, autocompletar
 watch(
@@ -59,7 +61,7 @@ function initCanvas() {
   const ctx = canvas.getContext("2d");
   if (!ctx) return;
   ctx.strokeStyle = "#0d2033";
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 2.5;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
 }
@@ -71,6 +73,7 @@ function clearCanvas() {
   if (!ctx) return;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   form.signatureData = "";
+  hasDrawn.value = false;
 }
 
 function startDrawing(e: MouseEvent) {
@@ -93,13 +96,14 @@ function draw(e: MouseEvent) {
   const rect = canvas.getBoundingClientRect();
   ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
   ctx.stroke();
+  hasDrawn.value = true;
 }
 
 function stopDrawing() {
   if (!isDrawing.value) return;
   isDrawing.value = false;
   const canvas = canvasRef.value;
-  if (canvas) {
+  if (canvas && hasDrawn.value) {
     form.signatureData = canvas.toDataURL("image/png");
   }
 }
@@ -114,24 +118,36 @@ watch(
   },
 );
 
-async function handleSubmit() {
-  if (!form.signerName.trim() || !form.signerDocumentNumber.trim()) {
-    error.value = "Nombre y número de documento son obligatorios.";
-    return;
-  }
+// Validación reactiva de formulario (UI-06)
+const isAttestationLengthValid = computed(
+  () => form.attestationText.trim().length >= 10,
+);
 
+const validationFeedback = computed<string | null>(() => {
+  if (!form.signerName.trim()) return "Ingrese el nombre completo del firmante.";
+  if (!form.signerDocumentNumber.trim()) return "Ingrese el número de documento.";
   if (form.signatureType === "DIGITAL_CERTIFICADA") {
-    error.value = "La firma digital certificada no está habilitada operativamente. Requiere integración PKI acreditada por la ONAC (Ley 527/1999).";
-    return;
+    return "Firma digital certificada bloqueada (requiere ONAC Ley 527/1999).";
   }
-
-  if (form.signatureType === "ATESTACION_USUARIO" && !form.acceptAttestation) {
-    error.value = "Debe aceptar la declaración de atestación bajo juramento.";
-    return;
+  if (form.signatureType === "ATESTACION_USUARIO") {
+    if (!form.acceptAttestation) {
+      return "Debe marcar la casilla de aceptación de la atestación.";
+    }
+    if (!isAttestationLengthValid.value) {
+      return `La atestación debe tener al menos 10 caracteres (actual: ${form.attestationText.trim().length}).`;
+    }
   }
+  if (form.signatureType === "DIBUJADA_UI" && !hasDrawn.value && !form.signatureData) {
+    return "Dibuje su firma en el recuadro interactivo.";
+  }
+  return null;
+});
 
-  if (form.signatureType === "DIBUJADA_UI" && !form.signatureData) {
-    error.value = "Por favor dibuje la firma en el recuadro antes de confirmar.";
+const isFormValid = computed(() => validationFeedback.value === null);
+
+async function handleSubmit() {
+  if (!isFormValid.value) {
+    error.value = validationFeedback.value || "Complete los campos obligatorios.";
     return;
   }
 
@@ -143,7 +159,10 @@ async function handleSubmit() {
       participantId: form.participantId || undefined,
       signatureType: form.signatureType,
       signatureData: form.signatureData || undefined,
-      attestationText: form.signatureType === "ATESTACION_USUARIO" ? form.attestationText : undefined,
+      attestationText:
+        form.signatureType === "ATESTACION_USUARIO"
+          ? form.attestationText.trim()
+          : undefined,
       signerName: form.signerName.trim(),
       signerRole: form.signerRole.trim(),
       signerDocumentType: form.signerDocumentType,
@@ -196,7 +215,7 @@ onMounted(() => {
         </div>
         <button
           type="button"
-          class="rounded-lg p-2 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+          class="rounded-lg p-2 text-slate-400 hover:bg-slate-200 hover:text-slate-700 cursor-pointer"
           @click="emit('close')"
         >
           ✕
@@ -210,11 +229,11 @@ onMounted(() => {
         >
           <strong class="font-bold">Atestación Criptográfica Inalterable:</strong>
           <p class="mt-0.5">
-            La firma se vinculará criptográficamente de manera irreversible al hash SHA-256 de este documento. Si los datos clínicos cambian y se genera una nueva versión, este snapshot preservará sus firmas vigentes de manera inmutable.
+            La firma se vinculará criptográficamente al hash SHA-256 de este documento. Si los datos clínicos cambian y se genera una nueva versión, este snapshot preservará sus firmas vigentes de manera inmutable.
           </p>
         </div>
 
-        <div v-if="error" class="rounded-xl bg-rose-50 p-3 text-xs text-rose-700">
+        <div v-if="error" class="rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-700">
           {{ error }}
         </div>
 
@@ -225,7 +244,7 @@ onMounted(() => {
           </label>
           <select
             v-model="form.participantId"
-            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"
+            class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
           >
             <option value="">-- Ingreso Manual / Usuario en Sesión --</option>
             <option v-for="p in participants" :key="p.id" :value="p.id">
@@ -242,7 +261,7 @@ onMounted(() => {
             <input
               v-model="form.signerName"
               type="text"
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
               placeholder="Ej: Dr. Carlos Pérez"
               required
             />
@@ -255,7 +274,7 @@ onMounted(() => {
             <input
               v-model="form.signerRole"
               type="text"
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
               placeholder="Ej: CIRUJANO_RESCATE"
               required
             />
@@ -267,7 +286,7 @@ onMounted(() => {
             </label>
             <select
               v-model="form.signerDocumentType"
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
             >
               <option value="CC">Cédula de Ciudadanía (CC)</option>
               <option value="CE">Cédula de Extranjería (CE)</option>
@@ -282,7 +301,7 @@ onMounted(() => {
             <input
               v-model="form.signerDocumentNumber"
               type="text"
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
               placeholder="12345678"
               required
             />
@@ -295,82 +314,106 @@ onMounted(() => {
             <input
               v-model="form.signerProfessionalId"
               type="text"
-              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"
+              class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
               placeholder="Ej: RM-058921"
             />
           </div>
         </div>
 
-        <!-- Modalidad de Firma -->
+        <!-- Modalidad de Firma (UI-06: Estilo diferenciado) -->
         <div>
-          <label class="block text-xs font-semibold text-slate-700 mb-1">
+          <label class="block text-xs font-semibold text-slate-700 mb-2">
             Modalidad de Firma *
           </label>
-          <div class="grid grid-cols-2 gap-2 text-xs">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+            <!-- Atestación de Usuario -->
             <label
-              class="flex cursor-pointer items-center gap-2 rounded-lg border p-2.5"
+              class="flex cursor-pointer items-start gap-2.5 rounded-xl border p-3 transition-colors"
               :class="
                 form.signatureType === 'ATESTACION_USUARIO'
-                  ? 'border-teal-600 bg-teal-50/60 font-semibold text-teal-900'
-                  : 'border-slate-200 hover:bg-slate-50'
+                  ? 'border-teal-600 bg-teal-50/70 font-semibold text-teal-950 shadow-xs'
+                  : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
               "
             >
               <input
                 v-model="form.signatureType"
                 type="radio"
                 value="ATESTACION_USUARIO"
-                class="text-teal-600"
+                class="mt-0.5 text-teal-600 focus:ring-teal-500"
               />
-              <span>Atestación de Usuario</span>
+              <div>
+                <span class="block font-bold">📜 Atestación de Usuario</span>
+                <span class="block text-[11px] font-normal text-slate-500 mt-0.5">
+                  Declaración juramentada vinculada al login institucional.
+                </span>
+              </div>
             </label>
 
+            <!-- Firma Dibujada en Pantalla -->
             <label
-              class="flex cursor-pointer items-center gap-2 rounded-lg border p-2.5"
+              class="flex cursor-pointer items-start gap-2.5 rounded-xl border p-3 transition-colors"
               :class="
                 form.signatureType === 'DIBUJADA_UI'
-                  ? 'border-teal-600 bg-teal-50/60 font-semibold text-teal-900'
-                  : 'border-slate-200 hover:bg-slate-50'
+                  ? 'border-teal-600 bg-teal-50/70 font-semibold text-teal-950 shadow-xs'
+                  : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
               "
             >
               <input
                 v-model="form.signatureType"
                 type="radio"
                 value="DIBUJADA_UI"
-                class="text-teal-600"
+                class="mt-0.5 text-teal-600 focus:ring-teal-500"
               />
-              <span>Firma Dibujada en Pantalla</span>
+              <div>
+                <span class="block font-bold">✒️ Firma Dibujada en Pantalla</span>
+                <span class="block text-[11px] font-normal text-slate-500 mt-0.5">
+                  Trazo manuscrito capturado en recuadro táctil o ratón.
+                </span>
+              </div>
             </label>
 
+            <!-- Manuscrita Presencial -->
             <label
-              class="flex cursor-pointer items-center gap-2 rounded-lg border p-2.5"
+              class="flex cursor-pointer items-start gap-2.5 rounded-xl border p-3 transition-colors"
               :class="
                 form.signatureType === 'MANUSCRITA_PRESENCIAL'
-                  ? 'border-teal-600 bg-teal-50/60 font-semibold text-teal-900'
-                  : 'border-slate-200 hover:bg-slate-50'
+                  ? 'border-teal-600 bg-teal-50/70 font-semibold text-teal-950 shadow-xs'
+                  : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
               "
             >
               <input
                 v-model="form.signatureType"
                 type="radio"
                 value="MANUSCRITA_PRESENCIAL"
-                class="text-teal-600"
+                class="mt-0.5 text-teal-600 focus:ring-teal-500"
               />
-              <span>Manuscrita Presencial</span>
+              <div>
+                <span class="block font-bold">📝 Manuscrita Presencial</span>
+                <span class="block text-[11px] font-normal text-slate-500 mt-0.5">
+                  Constancia de rúbrica en formato físico de soporte.
+                </span>
+              </div>
             </label>
 
+            <!-- Digital Certificada (Bloqueada con estilo diferenciado) -->
             <div
-              class="flex cursor-not-allowed items-center justify-between rounded-lg border border-slate-200 bg-slate-100 p-2.5 opacity-70"
+              class="flex cursor-not-allowed items-start justify-between rounded-xl border border-dashed border-slate-300 bg-slate-100/80 p-3 opacity-80"
               title="No habilitada operativamente. Requiere integración PKI con entidad de certificación acreditada por la ONAC (Ley 527/1999)"
             >
-              <div class="flex items-center gap-2">
+              <div class="flex items-start gap-2.5">
                 <input
                   type="radio"
                   disabled
-                  class="text-slate-400"
+                  class="mt-0.5 text-slate-400 cursor-not-allowed"
                 />
-                <span class="text-slate-500 line-through">Digital Certificada</span>
+                <div>
+                  <span class="block font-medium text-slate-500 line-through">🔏 Digital Certificada</span>
+                  <span class="block text-[10px] text-slate-400 mt-0.5">
+                    No habilitada operativamente.
+                  </span>
+                </div>
               </div>
-              <span class="rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold text-amber-800">
+              <span class="rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800 border border-amber-300 shrink-0">
                 Requiere ONAC
               </span>
             </div>
@@ -380,21 +423,50 @@ onMounted(() => {
         <!-- Declaración y Atestación Bajo Juramento (para ATESTACION_USUARIO) -->
         <div
           v-if="form.signatureType === 'ATESTACION_USUARIO'"
-          class="rounded-xl border border-teal-200 bg-teal-50/70 p-3.5 space-y-2 text-xs"
+          class="rounded-xl border border-teal-200 bg-teal-50/70 p-4 space-y-3 text-xs"
         >
           <div class="flex items-start gap-2.5">
             <input
               id="attestCheckbox"
               v-model="form.acceptAttestation"
               type="checkbox"
-              class="mt-0.5 h-4 w-4 rounded border-teal-400 text-teal-700 focus:ring-teal-500"
+              class="mt-1 h-4 w-4 rounded border-teal-400 text-teal-700 focus:ring-teal-500 cursor-pointer"
             />
-            <label for="attestCheckbox" class="text-slate-800 font-medium leading-relaxed">
-              <strong>Declaración de Atestación Clínica:</strong>
-              "{{ form.attestationText }}"
+            <label for="attestCheckbox" class="text-slate-800 font-medium leading-relaxed cursor-pointer">
+              <strong>Aceptación bajo juramento:</strong> Atestiguo y confirmo la veracidad de la información clínica registrada en el proceso de donación.
             </label>
           </div>
-          <p class="text-[10px] text-teal-800 italic pl-6.5">
+
+          <!-- Campo de texto de justificación o texto de atestación editable (UI-06) -->
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label class="block font-semibold text-slate-700">
+                Texto de Atestación Legal / Justificación Clínica *
+              </label>
+              <span
+                class="font-mono text-[11px] font-semibold"
+                :class="isAttestationLengthValid ? 'text-teal-700' : 'text-rose-600'"
+              >
+                {{ form.attestationText.trim().length }}/10 caracteres mín.
+              </span>
+            </div>
+            <textarea
+              v-model="form.attestationText"
+              rows="3"
+              class="w-full rounded-lg border bg-white p-2.5 text-xs text-slate-800 focus:outline-hidden"
+              :class="
+                isAttestationLengthValid
+                  ? 'border-teal-300 focus:ring-2 focus:ring-teal-500'
+                  : 'border-rose-300 focus:ring-2 focus:ring-rose-500 bg-rose-50/20'
+              "
+              placeholder="Ingrese el texto formal de atestación..."
+            ></textarea>
+            <p v-if="!isAttestationLengthValid" class="text-[11px] text-rose-600 mt-1 font-medium">
+              ⚠️ La atestación debe tener al menos 10 caracteres para cumplir con la auditoría documental.
+            </p>
+          </div>
+
+          <p class="text-[10px] text-teal-800 italic">
             ⚖️ Aviso legal: Esta atestación electrónica vincula su usuario en sesión al documento inmutable conforme a la política GODT Regional 3. No constituye firma digital PKI (Ley 527 de 1999).
           </p>
         </div>
@@ -402,16 +474,16 @@ onMounted(() => {
         <!-- Canvas interactivo para firma dibujada -->
         <div v-show="form.signatureType === 'DIBUJADA_UI'" class="space-y-1.5">
           <div class="flex items-center justify-between">
-            <span class="text-xs font-semibold text-slate-700">Dibujar firma:</span>
+            <span class="text-xs font-semibold text-slate-700">Dibujar firma manuscrita:</span>
             <button
               type="button"
-              class="text-[11px] text-slate-500 hover:text-slate-800 underline"
+              class="text-[11px] text-slate-500 hover:text-slate-800 underline cursor-pointer"
               @click="clearCanvas"
             >
               Limpiar recuadro
             </button>
           </div>
-          <div class="rounded-xl border border-slate-300 bg-white p-1">
+          <div class="rounded-xl border border-slate-300 bg-white p-1 shadow-inner">
             <canvas
               ref="canvasRef"
               width="480"
@@ -423,27 +495,44 @@ onMounted(() => {
               @mouseleave="stopDrawing"
             />
           </div>
+          <p v-if="!hasDrawn && !form.signatureData" class="text-[11px] text-amber-700 font-medium">
+            ✏️ Utilice el ratón o lápiz táctil para dibujar su rúbrica en el área blanca.
+          </p>
+          <p v-else class="text-[11px] text-emerald-700 font-medium">
+            ✓ Trazo de firma registrado correctamente.
+          </p>
         </div>
       </div>
 
-      <!-- Footer -->
-      <div class="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-3">
-        <button
-          type="button"
-          class="rounded-lg px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200"
-          :disabled="signing"
-          @click="emit('close')"
-        >
-          Cancelar
-        </button>
-        <button
-          type="button"
-          class="flex items-center gap-2 rounded-lg bg-[#123047] px-5 py-2 text-xs font-semibold text-white hover:bg-[#1a3f5c] disabled:opacity-50"
-          :disabled="signing"
-          @click="handleSubmit"
-        >
-          <span>{{ signing ? "Estampando firma..." : "Confirmar y Firmar Documento" }}</span>
-        </button>
+      <!-- Footer con validación reactiva (UI-06) -->
+      <div class="flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-6 py-3.5">
+        <div class="text-[11px] text-slate-500">
+          <span v-if="!isFormValid" class="text-amber-800 font-medium">
+            ℹ️ {{ validationFeedback }}
+          </span>
+          <span v-else class="text-emerald-700 font-medium">
+            ✓ Formulario validado. Listo para estampar.
+          </span>
+        </div>
+
+        <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
+          <button
+            type="button"
+            class="rounded-lg px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200 cursor-pointer"
+            :disabled="signing"
+            @click="emit('close')"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            class="flex items-center gap-2 rounded-lg bg-[#123047] px-5 py-2 text-xs font-semibold text-white hover:bg-[#1a3f5c] disabled:opacity-40 disabled:cursor-not-allowed shadow-xs cursor-pointer transition-colors"
+            :disabled="signing || !isFormValid"
+            @click="handleSubmit"
+          >
+            <span>{{ signing ? "Estampando firma..." : "Confirmar y Firmar Documento" }}</span>
+          </button>
+        </div>
       </div>
     </div>
   </div>

@@ -25,19 +25,55 @@ const stages: { value: CustodyStage; label: string }[] = [
   { value: "VERIFICACION_INTEGRIDAD", label: "Verificación Final de Integridad" },
 ];
 
+function getNowCotIso(): string {
+  const now = new Date();
+  // Colombia COT is fixed UTC-5
+  const cotOffsetMs = -5 * 60 * 60 * 1000;
+  const utcMs = now.getTime() + now.getTimezoneOffset() * 60 * 1000;
+  const cotDate = new Date(utcMs + cotOffsetMs);
+  return cotDate.toISOString().slice(0, 16);
+}
+
+function formatCotDateTime(iso?: string | null): string {
+  if (!iso) return "—";
+  try {
+    const d = new Date(iso);
+    return (
+      d.toLocaleString("es-CO", {
+        timeZone: "America/Bogota",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        second: "2-digit",
+        hour12: false,
+      }) + " COT"
+    );
+  } catch {
+    return iso;
+  }
+}
+
 const form = reactive({
   stage: "DESPACHO" as CustodyStage,
   responsibleName: "",
   responsibleDocument: "",
   responsibleRole: "COORDINADOR_OPERATIVO",
   institution: "",
-  eventTimestamp: new Date().toISOString().slice(0, 16),
+  eventTimestamp: getNowCotIso(),
   temperatureCelsius: 4.0,
   containerSealNumber: "",
   integrityVerified: false,
   verifierNotes: "",
   notes: "",
 });
+
+function openAddModal() {
+  form.eventTimestamp = getNowCotIso();
+  error.value = null;
+  showAddModal.value = true;
+}
 
 async function loadEvents() {
   loading.value = true;
@@ -95,70 +131,99 @@ onMounted(() => {
 
 <template>
   <div class="mt-8 rounded-2xl border border-teal-200 bg-white p-6 shadow-xs space-y-4">
-    <div class="flex items-center justify-between border-b border-slate-100 pb-4">
+    <!-- Encabezado con indicación de orientación apaisada y zona horaria oficial -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
       <div class="flex items-center gap-3">
-        <span class="text-2xl">🧊</span>
+        <span class="text-3xl">🧊</span>
         <div>
-          <h3 class="text-base font-bold text-slate-800">
-            Cadena de Custodia de Órganos y Tejidos (Anexo 8)
-          </h3>
-          <p class="text-xs text-slate-500">
-            Libro de eventos inmutable cronológico con verificación de temperatura, sellos y trazabilidad estricta.
+          <div class="flex flex-wrap items-center gap-2">
+            <h3 class="text-base font-bold text-slate-800">
+              Cadena de Custodia de Órganos y Tejidos (Anexo 8)
+            </h3>
+            <span
+              class="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2.5 py-0.5 text-[11px] font-semibold text-teal-800 border border-teal-200"
+              title="El formato oficial impreso se emite en apaisado (landscape). La vista web ofrece tabla interactiva con scroll horizontal y encabezados fijos."
+            >
+              <span>↔️ Formato Apaisado (Landscape)</span>
+            </span>
+            <span
+              class="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-mono font-medium text-blue-700 border border-blue-200"
+            >
+              Zona: COT / UTC-5
+            </span>
+          </div>
+          <p class="text-xs text-slate-500 mt-0.5">
+            Libro de eventos inmutable cronológico con verificación de temperatura, precintos y trazabilidad estricta.
           </p>
         </div>
       </div>
 
       <button
         type="button"
-        class="flex items-center gap-1.5 rounded-lg bg-teal-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-teal-700 cursor-pointer shadow-xs"
-        @click="showAddModal = true"
+        class="flex items-center justify-center gap-1.5 rounded-lg bg-teal-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-teal-700 cursor-pointer shadow-xs transition-colors shrink-0"
+        @click="openAddModal"
       >
         <span>+</span>
         <span>Registrar Eslabón de Custodia</span>
       </button>
     </div>
 
-    <div v-if="error" class="rounded-xl bg-rose-50 p-3 text-xs text-rose-700">
+    <div v-if="error" class="rounded-xl bg-rose-50 border border-rose-200 p-3 text-xs text-rose-700">
       {{ error }}
     </div>
 
-    <!-- Tabla de eventos cronológicos -->
-    <div v-if="loading" class="py-6 text-center text-xs text-slate-400">
+    <!-- Tabla de eventos cronológicos (UI-01: horizontal scrollable layout con sticky header) -->
+    <div v-if="loading" class="py-8 text-center text-xs text-slate-400">
       Cargando eventos de custodia...
     </div>
     <div
       v-else-if="events.length === 0"
-      class="rounded-xl border border-dashed border-slate-200 p-6 text-center text-xs text-slate-500"
+      class="rounded-xl border border-dashed border-slate-200 p-8 text-center text-xs text-slate-500"
     >
-      No se han registrado eventos en la cadena de custodia aún. Registre el eslabón de embalaje o despacho.
+      No se han registrado eventos en la cadena de custodia aún. Registre el primer eslabón de embalaje o despacho.
     </div>
-    <div v-else class="overflow-x-auto">
-      <table class="w-full text-left text-xs text-slate-700">
-        <thead class="bg-slate-50 text-[11px] font-bold uppercase tracking-wider text-slate-500">
+    <div
+      v-else
+      class="relative overflow-x-auto overflow-y-auto max-h-[500px] rounded-xl border border-slate-200 shadow-inner"
+    >
+      <table class="w-full min-w-[1020px] text-left text-xs text-slate-700 border-collapse">
+        <thead class="sticky top-0 z-10 bg-slate-100/95 backdrop-blur-xs text-[11px] font-bold uppercase tracking-wider text-slate-600 border-b border-slate-200 shadow-xs">
           <tr>
-            <th class="px-3 py-2.5">Sec.</th>
-            <th class="px-3 py-2.5">Etapa</th>
-            <th class="px-3 py-2.5">Fecha y Hora</th>
-            <th class="px-3 py-2.5">Responsable</th>
-            <th class="px-3 py-2.5">Institución</th>
-            <th class="px-3 py-2.5">Temp (°C)</th>
-            <th class="px-3 py-2.5">Sello</th>
-            <th class="px-3 py-2.5">Integridad</th>
+            <th class="px-3.5 py-3 w-16 text-center">Sec.</th>
+            <th class="px-3.5 py-3">Etapa de la Cadena</th>
+            <th class="px-3.5 py-3">
+              Fecha y Hora <span class="text-teal-700 font-mono text-[10px]">(COT / UTC-5)</span>
+            </th>
+            <th class="px-3.5 py-3">Responsable Oficial</th>
+            <th class="px-3.5 py-3">Institución / Operador</th>
+            <th class="px-3.5 py-3 text-center">Temp (°C)</th>
+            <th class="px-3.5 py-3">Sello / Precinto</th>
+            <th class="px-3.5 py-3">Integridad</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-100">
-          <tr v-for="ev in events" :key="ev.id" class="hover:bg-slate-50/50">
-            <td class="px-3 py-2.5 font-bold font-mono text-teal-800">#{{ ev.sequenceNumber }}</td>
-            <td class="px-3 py-2.5 font-semibold text-slate-800">{{ ev.stage }}</td>
-            <td class="px-3 py-2.5">{{ new Date(ev.eventTimestamp).toLocaleString() }}</td>
-            <td class="px-3 py-2.5">
-              <span class="font-medium text-slate-800">{{ ev.responsibleName }}</span>
-              <span class="block text-[11px] text-slate-400">{{ ev.responsibleRole }} · {{ ev.responsibleDocument }}</span>
+        <tbody class="divide-y divide-slate-100 bg-white">
+          <tr v-for="ev in events" :key="ev.id" class="hover:bg-slate-50/70 transition-colors">
+            <td class="px-3.5 py-3 font-bold font-mono text-center text-teal-800 bg-teal-50/20">
+              #{{ ev.sequenceNumber }}
             </td>
-            <td class="px-3 py-2.5 text-slate-600">{{ ev.institution }}</td>
-            <td class="px-3 py-2.5 font-mono">
+            <td class="px-3.5 py-3 font-semibold text-slate-800">
+              {{ ev.stage }}
+            </td>
+            <td class="px-3.5 py-3 font-mono text-[11px] text-slate-700 whitespace-nowrap">
+              {{ formatCotDateTime(ev.eventTimestamp) }}
+            </td>
+            <td class="px-3.5 py-3">
+              <span class="font-medium text-slate-900 block">{{ ev.responsibleName }}</span>
+              <span class="text-[11px] text-slate-500 font-mono">
+                {{ ev.responsibleRole }} · {{ ev.responsibleDocument }}
+              </span>
+            </td>
+            <td class="px-3.5 py-3 text-slate-600">
+              {{ ev.institution }}
+            </td>
+            <td class="px-3.5 py-3 text-center font-mono">
               <span
-                class="rounded px-1.5 py-0.5 text-[11px] font-bold"
+                class="rounded px-2 py-0.5 text-[11px] font-bold inline-block"
                 :class="
                   ev.temperatureCelsius !== null && ev.temperatureCelsius !== undefined && ev.temperatureCelsius <= 4
                     ? 'bg-blue-100 text-blue-800'
@@ -168,12 +233,12 @@ onMounted(() => {
                 {{ ev.temperatureCelsius !== null && ev.temperatureCelsius !== undefined ? `${ev.temperatureCelsius} °C` : 'N/A' }}
               </span>
             </td>
-            <td class="px-3 py-2.5 font-mono text-slate-600">
+            <td class="px-3.5 py-3 font-mono text-slate-700">
               {{ ev.containerSealNumber || '—' }}
             </td>
-            <td class="px-3 py-2.5">
+            <td class="px-3.5 py-3">
               <span
-                class="rounded px-2 py-0.5 text-[10px] font-bold uppercase"
+                class="rounded px-2 py-0.5 text-[10px] font-bold uppercase inline-block"
                 :class="
                   ev.integrityVerified
                     ? 'bg-emerald-100 text-emerald-800'
@@ -184,10 +249,10 @@ onMounted(() => {
               </span>
               <span
                 v-if="ev.verifiedBy || ev.verifiedAt"
-                class="block text-[10px] text-slate-400 mt-0.5 font-normal"
+                class="block text-[10px] text-slate-500 mt-0.5 font-normal"
               >
                 {{ ev.verifiedBy?.fullName ? `por ${ev.verifiedBy.fullName}` : 'Verificado' }}
-                {{ ev.verifiedAt ? `(${new Date(ev.verifiedAt).toLocaleDateString()})` : '' }}
+                {{ ev.verifiedAt ? `(${formatCotDateTime(ev.verifiedAt)})` : '' }}
               </span>
             </td>
           </tr>
@@ -203,12 +268,17 @@ onMounted(() => {
     >
       <div class="w-full max-w-lg rounded-2xl bg-white shadow-2xl overflow-hidden flex flex-col">
         <div class="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-6 py-4">
-          <h3 class="text-base font-bold text-slate-800">
-            Registrar Eslabón de Cadena de Custodia
-          </h3>
+          <div>
+            <h3 class="text-base font-bold text-slate-800">
+              Registrar Eslabón de Cadena de Custodia
+            </h3>
+            <p class="text-xs text-slate-500 font-mono mt-0.5">
+              Hora local oficial: Colombia (COT / UTC-5)
+            </p>
+          </div>
           <button
             type="button"
-            class="rounded-lg p-2 text-slate-400 hover:bg-slate-200"
+            class="rounded-lg p-2 text-slate-400 hover:bg-slate-200 cursor-pointer"
             @click="showAddModal = false"
           >
             ✕
@@ -221,7 +291,7 @@ onMounted(() => {
               <label class="block font-semibold text-slate-700 mb-1">Etapa de la Cadena *</label>
               <select
                 v-model="form.stage"
-                class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs"
+                class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
               >
                 <option v-for="s in stages" :key="s.value" :value="s.value">
                   {{ s.label }}
@@ -234,7 +304,7 @@ onMounted(() => {
               <input
                 v-model="form.responsibleName"
                 type="text"
-                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"
+                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
                 placeholder="Nombre completo"
               />
             </div>
@@ -244,7 +314,7 @@ onMounted(() => {
               <input
                 v-model="form.responsibleDocument"
                 type="text"
-                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"
+                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
                 placeholder="1098765432"
               />
             </div>
@@ -254,7 +324,7 @@ onMounted(() => {
               <input
                 v-model="form.responsibleRole"
                 type="text"
-                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"
+                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
               />
             </div>
 
@@ -263,17 +333,19 @@ onMounted(() => {
               <input
                 v-model="form.institution"
                 type="text"
-                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"
+                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
                 placeholder="IPS u Operador Logístico"
               />
             </div>
 
             <div>
-              <label class="block font-semibold text-slate-700 mb-1">Fecha y Hora Evento *</label>
+              <label class="block font-semibold text-slate-700 mb-1">
+                Fecha y Hora Evento <span class="text-teal-700 font-mono font-medium">(COT / UTC-5)</span> *
+              </label>
               <input
                 v-model="form.eventTimestamp"
                 type="datetime-local"
-                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"
+                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
               />
             </div>
 
@@ -283,7 +355,7 @@ onMounted(() => {
                 v-model="form.temperatureCelsius"
                 type="number"
                 step="0.1"
-                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"
+                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
               />
             </div>
 
@@ -292,7 +364,7 @@ onMounted(() => {
               <input
                 v-model="form.containerSealNumber"
                 type="text"
-                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"
+                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
                 placeholder="Ej: SEAL-2026-99"
               />
             </div>
@@ -302,7 +374,7 @@ onMounted(() => {
                 id="intVer"
                 v-model="form.integrityVerified"
                 type="checkbox"
-                class="h-4 w-4 rounded text-teal-600"
+                class="h-4 w-4 rounded text-teal-600 focus:ring-teal-500"
               />
               <label for="intVer" class="text-xs font-semibold text-slate-700 cursor-pointer">
                 Integridad física y cadena de frío verificadas
@@ -316,7 +388,7 @@ onMounted(() => {
               <input
                 v-model="form.verifierNotes"
                 type="text"
-                class="w-full rounded-lg border border-teal-300 bg-teal-50/40 px-3 py-2 text-xs text-slate-800"
+                class="w-full rounded-lg border border-teal-300 bg-teal-50/40 px-3 py-2 text-xs text-slate-800 focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
                 placeholder="Ej: Contenedor con precinto intacto y temperatura conforme al desembalaje"
               />
             </div>
@@ -326,7 +398,7 @@ onMounted(() => {
               <textarea
                 v-model="form.notes"
                 rows="2"
-                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs"
+                class="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs focus:ring-2 focus:ring-teal-500 focus:outline-hidden"
                 placeholder="Novedades, condición del embalaje o refrigeración..."
               />
             </div>
@@ -336,14 +408,15 @@ onMounted(() => {
         <div class="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 px-6 py-3">
           <button
             type="button"
-            class="rounded-lg px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200"
+            class="rounded-lg px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200 cursor-pointer"
+            :disabled="saving"
             @click="showAddModal = false"
           >
             Cancelar
           </button>
           <button
             type="button"
-            class="rounded-lg bg-teal-600 px-5 py-2 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
+            class="rounded-lg bg-teal-600 px-5 py-2 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-50 cursor-pointer transition-colors"
             :disabled="saving"
             @click="handleAppendEvent"
           >

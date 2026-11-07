@@ -143,55 +143,57 @@ function formatDate(iso: string): string {
           <p class="text-xs">Inicie un proceso operativo seleccionando un donante existente.</p>
         </div>
 
-        <table v-else class="min-w-full divide-y divide-slate-200 text-sm">
-          <thead class="bg-slate-50 text-slate-500 text-xs font-semibold uppercase tracking-wider text-left">
-            <tr>
-              <th class="px-6 py-3.5">Código Acción</th>
-              <th class="px-6 py-3.5">Donante</th>
-              <th class="px-6 py-3.5">IPS Principal</th>
-              <th class="px-6 py-3.5">Estado</th>
-              <th class="px-6 py-3.5">Fecha Apertura</th>
-              <th class="px-6 py-3.5 text-right">Acción</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-slate-200 divide-solid">
-            <tr
-              v-for="proc in processes"
-              :key="proc.id"
-              class="hover:bg-slate-50/80 transition cursor-pointer"
-              @click="router.push(`/procesos/${proc.id}`)"
-            >
-              <td class="px-6 py-4 font-mono font-bold text-indigo-600">
-                {{ proc.processCode }}
-              </td>
-              <td class="px-6 py-4">
-                <div class="font-medium text-slate-900">{{ proc.donor?.fullName || "Donante no asignado" }}</div>
-                <div class="text-xs text-slate-500 font-mono">{{ proc.donor?.rndCode || proc.donorId }}</div>
-              </td>
-              <td class="px-6 py-4 text-slate-700">
-                {{ proc.primaryIpsName }}
-              </td>
-              <td class="px-6 py-4">
-                <StatusBadge :status="proc.status" />
-              </td>
-              <td class="px-6 py-4 text-xs text-slate-500">
-                {{ formatDate(proc.openedAt) }}
-              </td>
-              <td class="px-6 py-4 text-right">
-                <button
-                  type="button"
-                  class="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800"
-                  @click.stop="router.push(`/procesos/${proc.id}`)"
-                >
-                  Gestionar
-                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-                  </svg>
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div v-else class="overflow-x-auto">
+          <table class="min-w-full divide-y divide-slate-200 text-sm">
+            <thead class="bg-slate-50 text-slate-500 text-xs font-semibold uppercase tracking-wider text-left">
+              <tr>
+                <th class="px-6 py-3.5 whitespace-nowrap">Código Acción</th>
+                <th class="px-6 py-3.5 whitespace-nowrap">Donante</th>
+                <th class="px-6 py-3.5 whitespace-nowrap">IPS Principal</th>
+                <th class="px-6 py-3.5 whitespace-nowrap">Estado</th>
+                <th class="px-6 py-3.5 whitespace-nowrap">Fecha Apertura</th>
+                <th class="px-6 py-3.5 text-right whitespace-nowrap">Acción</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-200 divide-solid">
+              <tr
+                v-for="proc in processes"
+                :key="proc.id"
+                class="hover:bg-slate-50/80 transition cursor-pointer"
+                @click="router.push(`/procesos/${proc.id}`)"
+              >
+                <td class="px-6 py-4 font-mono font-bold text-indigo-600 whitespace-nowrap">
+                  {{ proc.processCode }}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                  <div class="font-medium text-slate-900">{{ proc.donor?.fullName || "Donante no asignado" }}</div>
+                  <div class="text-xs text-slate-500 font-mono">{{ proc.donor?.rndCode || proc.donorId }}</div>
+                </td>
+                <td class="px-6 py-4 text-slate-700 whitespace-nowrap">
+                  {{ proc.primaryIpsName }}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                  <StatusBadge :status="proc.status" />
+                </td>
+                <td class="px-6 py-4 text-xs text-slate-500 whitespace-nowrap">
+                  {{ formatDate(proc.openedAt) }}
+                </td>
+                <td class="px-6 py-4 text-right whitespace-nowrap">
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800 cursor-pointer"
+                    @click.stop="router.push(`/procesos/${proc.id}`)"
+                  >
+                    Gestionar
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+                    </svg>
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <!-- Modal Apertura Proceso -->

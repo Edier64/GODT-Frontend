@@ -250,8 +250,7 @@ async function handleValidateLifecycle() {
     lifecycleMessage.value = `Documento validado formalmente (Estado: ${res.status}).`;
     await load();
   } catch (err: any) {
-    lifecycleError.value =
-      err?.response?.data?.message || err?.message || "Error al validar documento.";
+    lifecycleError.value = getApiError(err);
   } finally {
     lifecycleLoading.value = false;
   }
@@ -266,8 +265,7 @@ async function handleCompleteLifecycle() {
     lifecycleMessage.value = `Documento completado con éxito (Estado: ${res.status}). Firmantes requeridos: ${res.mandatorySignersCount}.`;
     await load();
   } catch (err: any) {
-    lifecycleError.value =
-      err?.response?.data?.message || err?.message || "Error al completar documento.";
+    lifecycleError.value = getApiError(err);
   } finally {
     lifecycleLoading.value = false;
   }
@@ -284,8 +282,7 @@ async function handleGenerateSnapshot() {
     lifecycleMessage.value = `Snapshot oficial v${snap.versionNumber} generado (SHA-256: ${snap.sha256Hash.slice(0, 16)}...).`;
     await load();
   } catch (err: any) {
-    lifecycleError.value =
-      err?.response?.data?.message || err?.message || "Error al generar snapshot documental.";
+    lifecycleError.value = getApiError(err);
   } finally {
     lifecycleLoading.value = false;
   }
@@ -300,8 +297,7 @@ async function handleReleaseLifecycle() {
     lifecycleMessage.value = `Documento liberado exitosamente en el expediente del proceso (Estado: ${res.status}).`;
     await load();
   } catch (err: any) {
-    lifecycleError.value =
-      err?.response?.data?.message || err?.message || "Error al liberar documento.";
+    lifecycleError.value = getApiError(err);
   } finally {
     lifecycleLoading.value = false;
   }
@@ -324,8 +320,7 @@ async function handleReopenLifecycle() {
     reopenJustification.value = "";
     await load();
   } catch (err: any) {
-    lifecycleError.value =
-      err?.response?.data?.message || err?.message || "Error al solicitar la reapertura técnica.";
+    lifecycleError.value = getApiError(err);
   } finally {
     reopening.value = false;
   }
@@ -375,6 +370,51 @@ onMounted(load);
 
 <template>
   <section class="max-w-6xl mx-auto pb-12">
+    <!-- Banner Flotante Persistente de Modo Sólo Lectura (UI-04) -->
+    <div
+      v-if="isDocumentLocked"
+      class="sticky top-2 z-30 mb-4 rounded-2xl border-2 border-amber-400 bg-amber-500/95 backdrop-blur-md px-5 py-3.5 text-white shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all duration-300"
+    >
+      <div class="flex items-center gap-3.5">
+        <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-600/80 text-xl font-bold text-white shadow-inner">
+          🔒
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h4 class="font-bold text-sm tracking-wide text-white">
+              Documento Sellado — Modo Sólo Lectura
+            </h4>
+            <span class="rounded-full bg-amber-700/90 px-2.5 py-0.5 text-[10px] font-mono font-bold tracking-wider uppercase text-amber-100 border border-amber-300/40">
+              Estado: {{ instance?.status }}
+            </span>
+          </div>
+          <p class="text-xs text-amber-100 mt-0.5">
+            Expediente protegido contra modificaciones para garantizar la inmutabilidad jurídica de los snapshots y firmas electrónicas.
+          </p>
+        </div>
+      </div>
+      <div class="flex items-center gap-2 shrink-0">
+        <button
+          v-if="latestSnapshot"
+          type="button"
+          class="flex items-center gap-1.5 rounded-xl bg-white px-3.5 py-1.5 text-xs font-bold text-amber-950 hover:bg-amber-100 shadow-sm cursor-pointer transition-colors"
+          @click="openPdfViewer()"
+        >
+          <span>📄</span>
+          <span>Ver PDF Oficial</span>
+        </button>
+        <button
+          v-if="['COMPLETADO', 'PENDIENTE_FIRMAS', 'FIRMADO'].includes(instance?.status || '')"
+          type="button"
+          class="flex items-center gap-1 rounded-xl bg-amber-700 hover:bg-amber-800 px-3 py-1.5 text-xs font-semibold text-white shadow-xs cursor-pointer transition-colors"
+          @click="showReopenModal = true"
+        >
+          <span>↩️</span>
+          <span>Reapertura</span>
+        </button>
+      </div>
+    </div>
+
     <!-- Navegación Superior -->
     <RouterLink
       class="text-xs font-semibold text-[#159c9a] hover:underline"
