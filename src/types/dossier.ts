@@ -3,12 +3,15 @@ export type DossierExportType = "FULL_ZIP" | "CONSOLIDATED_PDF" | "INDEX_ONLY";
 export type DossierExportStatus = "PENDING" | "PROCESSING" | "COMPLETED" | "FAILED" | "EXPIRED";
 
 export interface DossierSignatureItem {
+  participantId?: string;
   signerRole: string;
   signerName: string;
   signerDocument?: string | null;
   signatureType: string;
   signedAt: string | null;
-  snapshotSha256: string;
+  snapshotSha256: string | null;
+  hasCryptographicSignature?: boolean;
+  attestationLevel?: "ATESTA_MANUAL_INTERNA" | "FIRMA_ELECTRONICA_SIMPLE" | "DIGITAL_CERTIFICADA_BLOQUEADA";
 }
 
 export interface DossierOriginalFileItem {
@@ -32,7 +35,7 @@ export interface DossierDocumentItem {
   consolidatedPageRange?: {
     startPage: number;
     endPage: number;
-    pageCount: number;
+    pageCount?: number;
   } | null;
   originalFile?: DossierOriginalFileItem | null;
   signatures: DossierSignatureItem[];
@@ -49,6 +52,18 @@ export interface DossierSourceDocumentItem {
   includedInPackage: boolean;
 }
 
+export interface DossierManifestFileItem {
+  fileName: string;
+  relativePath: string;
+  fileType: string;
+  sha256: string;
+  sizeBytes: number;
+  documentCode?: string;
+  positionNumber?: number;
+  versionNumber?: number;
+  status?: string;
+}
+
 export interface DossierSummary {
   totalPositions: number;
   normativePositions: number;
@@ -59,6 +74,7 @@ export interface DossierSummary {
   nonApplicableCount: number;
   pendingHomologationCount: number;
   sourceDocumentsIncludedCount: number;
+  hasConsolidatedPdf?: boolean;
 }
 
 export interface DossierManifest {
@@ -77,21 +93,19 @@ export interface DossierManifest {
   };
   packageVersion: string;
   systemVersion: string;
+  manifestDigest?: string;
   manifestSha256?: string;
   summary: DossierSummary;
   consolidatedPdf?: {
     fileName: string;
     sha256: string;
     sizeBytes: number;
-    totalPageCount: number;
-  } | null;
-  zipPackage?: {
-    fileName: string;
-    sha256: string;
-    sizeBytes: number;
+    pageCount?: number;
+    totalPageCount?: number;
   } | null;
   documents: DossierDocumentItem[];
   sourceDocuments: DossierSourceDocumentItem[];
+  files?: DossierManifestFileItem[];
 }
 
 export interface ProcessDossierExport {
@@ -108,6 +122,8 @@ export interface ProcessDossierExport {
   selectedSourceDocumentIds: string[];
   zipStorageKey?: string | null;
   zipSha256?: string | null;
+  packageChecksumSha256?: string | null;
+  manifestDigest?: string | null;
   zipSizeBytes?: number | null;
   consolidatedPdfStorageKey?: string | null;
   consolidatedPdfSha256?: string | null;
@@ -130,13 +146,14 @@ export interface RequestDossierExportPayload {
   selectedSourceDocumentIds?: string[];
 }
 
-export interface IntegrityVerificationItem {
-  itemType: "ORIGINAL_PDF" | "CONSOLIDATED_PDF" | "ZIP_ARCHIVE" | "SOURCE_DOCUMENT";
-  codeOrName: string;
+export interface HardenedVerificationItem {
+  relativePath: string;
+  fileName: string;
+  itemType: string;
   expectedSha256: string;
   actualSha256: string;
   matches: boolean;
-  status: "OK" | "MISMATCH" | "FILE_NOT_FOUND";
+  status: "OK" | "ALTERED" | "MISSING" | "UNEXPECTED" | "MISMATCH" | "FILE_NOT_FOUND" | "ERROR";
   details?: string;
 }
 
@@ -145,9 +162,20 @@ export interface IntegrityVerificationReport {
   processCode: string;
   verifiedAt: string;
   verifiedBy: string;
-  overallStatus: "INTEGRITY_VERIFIED" | "INTEGRITY_COMPROMISED";
-  totalChecked: number;
-  passedCount: number;
-  failedCount: number;
-  items: IntegrityVerificationItem[];
+  overallStatus: "INTEGRITY_VERIFIED" | "INTEGRITY_COMPROMISED" | "VERIFICATION_FAILED";
+  expectedPackageSha256?: string;
+  actualPackageSha256?: string;
+  packageHashMatches?: boolean;
+  expectedManifestDigest?: string;
+  actualManifestDigest?: string;
+  manifestDigestMatches?: boolean;
+  totalChecked?: number;
+  totalFilesInspected?: number;
+  passedCount?: number;
+  correctFilesCount?: number;
+  failedCount?: number;
+  alteredFilesCount?: number;
+  missingFilesCount?: number;
+  unexpectedFilesCount?: number;
+  items: HardenedVerificationItem[];
 }
