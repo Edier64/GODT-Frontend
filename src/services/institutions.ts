@@ -81,3 +81,34 @@ export function getPreviewPdfUrl(instanceId: string, download = false): string {
   return `${base}/document-instances/${instanceId}/preview-pdf?download=${download}`;
 }
 
+export async function fetchOriginalTemplateBlob(code: string, download = false): Promise<Blob> {
+  const res = await api.get(`/document-templates/${code}/original-file`, {
+    params: { download },
+    responseType: "blob",
+  });
+  return res.data;
+}
+
+export async function fetchPreviewPdfBlob(
+  instanceId: string,
+  revisionId?: string,
+  download = false,
+): Promise<Blob> {
+  const res = await api.get(`/document-instances/${instanceId}/preview-pdf`, {
+    params: { download, ...(revisionId ? { revisionId } : {}) },
+    responseType: "blob",
+  });
+  return res.data;
+}
+
+export async function fetchDiligencedDocxBlob(
+  instanceId: string,
+  revisionId?: string,
+): Promise<Blob> {
+  const res = await api.get(`/document-instances/${instanceId}/diligenced-docx`, {
+    params: { ...(revisionId ? { revisionId } : {}) },
+    responseType: "blob",
+  });
+  return res.data;
+}
+

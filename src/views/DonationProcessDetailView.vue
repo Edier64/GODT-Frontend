@@ -1237,12 +1237,12 @@ function formatDate(iso?: string | null): string {
               <div class="flex items-center gap-1.5 flex-wrap">
                 <button
                   type="button"
-                  class="px-2 py-1 text-xs text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-md transition cursor-pointer flex items-center gap-1 font-medium"
-                  title="Visualizar formato institucional oficial"
+                  class="px-2.5 py-1 text-xs text-teal-800 bg-teal-50 hover:bg-teal-100 rounded-md transition cursor-pointer flex items-center gap-1 font-semibold"
+                  :title="doc.currentInstanceId ? 'Visualizar PDF diligenciado con datos de este proceso' : 'Documento pendiente de diligenciar'"
                   @click="openInstitutionalViewerForDoc(doc)"
                 >
-                  <span>🏛️</span>
-                  <span>Formato</span>
+                  <span>📝</span>
+                  <span>{{ doc.currentInstanceId ? "Ver PDF diligenciado" : "Previsualizar PDF" }}</span>
                 </button>
                 <button
                   type="button"
@@ -2595,7 +2595,7 @@ function formatDate(iso?: string | null): string {
       @close="showProcessPdfModal = false"
     />
 
-    <!-- Modal de Formato Institucional Oficial (Fase G.1.3) -->
+    <!-- Modal de Formato Institucional Oficial (Fase G.1.3 & G.1.4) -->
     <InstitutionalDocumentViewerModal
       v-if="showInstitutionalModal && selectedDocForInstitutionalViewer"
       :show="showInstitutionalModal"
@@ -2603,7 +2603,9 @@ function formatDate(iso?: string | null): string {
       :instance-id="selectedDocForInstitutionalViewer.currentInstanceId || undefined"
       :document-title="selectedDocForInstitutionalViewer.title"
       :status="selectedDocForInstitutionalViewer.status"
+      initial-tab="DILIGENCED"
       @close="showInstitutionalModal = false"
+      @diligence="handleOpenOrInitiateDocument(selectedDocForInstitutionalViewer)"
     />
 
     <!-- MODAL 1: Solicitar Exportación de Expediente (Fase E) -->

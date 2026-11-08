@@ -28,6 +28,22 @@ export interface PageDimension {
   orientation: "PORTRAIT" | "LANDSCAPE";
 }
 
+export type FidelityStatus =
+  | "SOURCE_REGISTERED"
+  | "PREVIEW_READY"
+  | "FIELD_MAPPING_IN_PROGRESS"
+  | "RENDER_READY"
+  | "REVIEW_REQUIRED";
+
+export interface DerivativeMetadata {
+  originalFormat: "DOCX" | "PDF";
+  isDerivativePdfAvailable: boolean;
+  sourceSha256: string;
+  relationship: "ORIGINAL_SOURCE" | "DILIGENCED_INSTANCE" | "VECTOR_PREVIEW";
+  conversionEngineRequired?: string;
+  notes?: string;
+}
+
 export interface InstitutionalDocumentMetadata {
   documentCode: string;
   templateCode: string;
@@ -45,5 +61,7 @@ export interface InstitutionalDocumentMetadata {
     | "PENDING_HOMOLOGATION"
     | "COMPLEMENTARY_SOURCE";
   renderMode: "STATIC_OVERLAY" | "VECTOR_GENERATED" | "SOURCE_ATTACHMENT";
+  fidelityStatus?: FidelityStatus;
+  derivativeMetadata?: DerivativeMetadata;
 }
 
