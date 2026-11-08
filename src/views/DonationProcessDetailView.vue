@@ -620,6 +620,7 @@ async function handlePropagateField(field: OcrField) {
     await ocrService.propagateToProcess(processId.value, field.id);
     propagatedSuccessMap.value[field.id] = true;
     await loadCanonical();
+    await loadDocuments(processId.value);
   } catch (err: any) {
     alert("Error al propagar campo a datos canónicos: " + getApiError(err));
   } finally {
@@ -632,22 +633,36 @@ async function handlePropagateAllConfirmed() {
   propagatingAll.value = true;
   let successCount = 0;
   try {
-    for (const field of extractedOcrFields.value) {
-      if (
-        field.validationStatus === "CONFIRMADO" ||
-        field.validationStatus === "MODIFICADO"
-      ) {
-        try {
-          await ocrService.propagateToProcess(processId.value, field.id);
-          propagatedSuccessMap.value[field.id] = true;
+    const itemsToPropagate = extractedOcrFields.value
+      .filter((f) => f.validationStatus === "CONFIRMADO" || f.validationStatus === "MODIFICADO")
+      .map((f) => ({
+        fieldId: f.id,
+        status: f.validationStatus as "CONFIRMADO" | "MODIFICADO",
+        confirmedValue: f.confirmedValue || undefined,
+      }));
+
+    if (itemsToPropagate.length > 0) {
+      try {
+        const results = await ocrService.batchPropagateToProcess(processId.value, itemsToPropagate);
+        for (const res of results) {
+          propagatedSuccessMap.value[res.fieldId] = true;
           successCount++;
-        } catch {
-          // Continuar con los siguientes
+        }
+      } catch {
+        // Fallback campo por campo si el batch falla
+        for (const item of itemsToPropagate) {
+          try {
+            await ocrService.propagateToProcess(processId.value, item.fieldId);
+            propagatedSuccessMap.value[item.fieldId] = true;
+            successCount++;
+          } catch {}
         }
       }
     }
+
     await loadCanonical();
-    alert(`Se propagaron exitosamente ${successCount} campo(s) al diccionario canónico del proceso.`);
+    await loadDocuments(processId.value);
+    alert(`Se propagaron exitosamente ${successCount} campo(s) al diccionario canónico y formularios del proceso.`);
   } finally {
     propagatingAll.value = false;
   }
@@ -660,6 +675,25 @@ onMounted(async () => {
     await loadCanonical();
     await loadDossierExports();
     await loadSources();
+
+    if (route.query.tab === "sources" || route.query.openOcrDoc) {
+      activeMainTab.value = "SOURCES";
+    }
+
+    if (route.query.openOcrDoc) {
+      let targetDoc = sourceDocuments.value.find(
+        (d) => d.id === route.query.openOcrDoc,
+      );
+      if (!targetDoc) {
+        await loadSources();
+        targetDoc = sourceDocuments.value.find(
+          (d) => d.id === route.query.openOcrDoc,
+        );
+      }
+      if (targetDoc) {
+        await handleOpenOcrReview(targetDoc);
+      }
+    }
   }
 });
 
@@ -1237,12 +1271,12 @@ function formatDate(iso?: string | null): string {
               <div class="flex items-center gap-1.5 flex-wrap">
                 <button
                   type="button"
-                  class="px-2 py-1 text-xs text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-md transition cursor-pointer flex items-center gap-1 font-medium"
-                  title="Visualizar formato institucional oficial"
+                  class="px-2.5 py-1 text-xs text-teal-800 bg-teal-50 hover:bg-teal-100 rounded-md transition cursor-pointer flex items-center gap-1 font-semibold"
+                  :title="doc.currentInstanceId ? 'Visualizar PDF diligenciado con datos de este proceso' : 'Documento pendiente de diligenciar'"
                   @click="openInstitutionalViewerForDoc(doc)"
                 >
-                  <span>🏛️</span>
-                  <span>Formato</span>
+                  <span>📝</span>
+                  <span>{{ doc.currentInstanceId ? "Ver PDF diligenciado" : "Previsualizar PDF" }}</span>
                 </button>
                 <button
                   type="button"
@@ -2595,7 +2629,7 @@ function formatDate(iso?: string | null): string {
       @close="showProcessPdfModal = false"
     />
 
-    <!-- Modal de Formato Institucional Oficial (Fase G.1.3) -->
+    <!-- Modal de Formato Institucional Oficial (Fase G.1.3 & G.1.4) -->
     <InstitutionalDocumentViewerModal
       v-if="showInstitutionalModal && selectedDocForInstitutionalViewer"
       :show="showInstitutionalModal"
@@ -2603,7 +2637,9 @@ function formatDate(iso?: string | null): string {
       :instance-id="selectedDocForInstitutionalViewer.currentInstanceId || undefined"
       :document-title="selectedDocForInstitutionalViewer.title"
       :status="selectedDocForInstitutionalViewer.status"
+      initial-tab="DILIGENCED"
       @close="showInstitutionalModal = false"
+      @diligence="handleOpenOrInitiateDocument(selectedDocForInstitutionalViewer)"
     />
 
     <!-- MODAL 1: Solicitar Exportación de Expediente (Fase E) -->

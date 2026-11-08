@@ -63,6 +63,13 @@ function openInstitutionalViewer(tab: "ORIGINAL" | "DILIGENCED" = "ORIGINAL") {
   showInstitutionalModal.value = true;
 }
 
+async function handlePreviewDiligenced() {
+  if (!isDocumentLocked.value && form.value) {
+    await save(false);
+  }
+  openInstitutionalViewer("DILIGENCED");
+}
+
 const isDocumentLocked = computed(() =>
   ["COMPLETADO", "PENDIENTE_FIRMAS", "FIRMADO", "LIBERADO"].includes(
     instance.value?.status || "",
@@ -497,11 +504,12 @@ onMounted(load);
         <button
           type="button"
           class="focus-ring rounded-lg border border-teal-600 bg-teal-600 px-3 py-2 text-xs font-semibold text-white hover:bg-teal-700 cursor-pointer shadow-xs flex items-center gap-1.5"
-          title="Previsualizar formato diligenciado sobre fondo institucional"
-          @click="openInstitutionalViewer('DILIGENCED')"
+          title="Guardar y previsualizar formato diligenciado sobre fondo institucional"
+          :disabled="saving"
+          @click="handlePreviewDiligenced"
         >
           <span>📝</span>
-          <span>Previsualizar Diligenciado</span>
+          <span>{{ saving ? "Guardando..." : "Previsualizar Diligenciado" }}</span>
         </button>
 
         <button
@@ -1062,12 +1070,13 @@ onMounted(load);
       </div>
     </div>
 
-    <!-- Visor de Formato Institucional Oficial GODT (Fase G.1.3) -->
+    <!-- Visor de Formato Institucional Oficial GODT (Fase G.1.3 & G.1.4) -->
     <InstitutionalDocumentViewerModal
       v-if="instance"
       :show="showInstitutionalModal"
       :document-code="instance.documentCode"
       :instance-id="instance.id"
+      :revision-id="instance.currentRevision?.id"
       :document-title="instance.documentCode"
       :status="instance.status"
       :revision-number="instance.currentRevision?.revisionNumber"

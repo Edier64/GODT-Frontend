@@ -120,3 +120,39 @@ export async function getActiveProcessPackage(): Promise<any> {
   const response = await api.get<any>("/process-packages/active");
   return response.data;
 }
+
+export interface IntakeFromClinicalHistoryPayload {
+  primaryIpsName: string;
+  file: File;
+  notes?: string;
+  processCode?: string;
+}
+
+export interface IntakeFromClinicalHistoryResponse {
+  process: DonationProcess;
+  donorId: string;
+  sourceDocument: any;
+  ocrJob: any;
+  candidates: any[];
+}
+
+export async function intakeFromClinicalHistory(
+  payload: IntakeFromClinicalHistoryPayload,
+): Promise<IntakeFromClinicalHistoryResponse> {
+  const formData = new FormData();
+  formData.append("file", payload.file);
+  formData.append("primaryIpsName", payload.primaryIpsName);
+  if (payload.notes) formData.append("notes", payload.notes);
+  if (payload.processCode) formData.append("processCode", payload.processCode);
+
+  const response = await api.post<IntakeFromClinicalHistoryResponse>(
+    "/donation-processes/intake-from-clinical-history",
+    formData,
+    {
+      headers: {
+        "Content-Type": "multipart/form-data",
+      },
+    },
+  );
+  return response.data;
+}
