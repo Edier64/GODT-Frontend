@@ -39,7 +39,11 @@ export interface InstitutionalDocumentMetadata {
   pageCount: number;
   dimensions: PageDimension[];
   hasAcroForm: boolean;
-  status: "OFFICIAL_HOMOLOGATED" | "PENDING_HOMOLOGATION" | "COMPLEMENTARY_SOURCE";
+  status:
+    | "OFFICIAL_HOMOLOGATED"
+    | "INSTITUTIONAL_REGISTERED_TEMPLATE"
+    | "PENDING_HOMOLOGATION"
+    | "COMPLEMENTARY_SOURCE";
   renderMode: "STATIC_OVERLAY" | "VECTOR_GENERATED" | "SOURCE_ATTACHMENT";
 }
 
