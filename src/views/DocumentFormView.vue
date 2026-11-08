@@ -6,6 +6,7 @@ import PdfViewerModal from "../components/PdfViewerModal.vue";
 import DocumentSignatureModal from "../components/DocumentSignatureModal.vue";
 import DocumentParticipantsDrawer from "../components/DocumentParticipantsDrawer.vue";
 import CustodyEventSection from "../components/CustodyEventSection.vue";
+import InstitutionalDocumentViewerModal from "../components/InstitutionalDocumentViewerModal.vue";
 import { getApiError } from "../services/api";
 import { documentInstancesService } from "../services/documentInstances";
 import { documentLifecycleService } from "../services/documentLifecycle";
@@ -52,6 +53,15 @@ const reopening = ref(false);
 const lifecycleLoading = ref(false);
 const lifecycleMessage = ref("");
 const lifecycleError = ref("");
+
+// Visor de formato institucional oficial
+const showInstitutionalModal = ref(false);
+const institutionalInitialTab = ref<"ORIGINAL" | "DILIGENCED">("ORIGINAL");
+
+function openInstitutionalViewer(tab: "ORIGINAL" | "DILIGENCED" = "ORIGINAL") {
+  institutionalInitialTab.value = tab;
+  showInstitutionalModal.value = true;
+}
 
 const isDocumentLocked = computed(() =>
   ["COMPLETADO", "PENDIENTE_FIRMAS", "FIRMADO", "LIBERADO"].includes(
@@ -176,7 +186,11 @@ async function save(propagate = true) {
         }
 
         if (propRes.conflicts?.length) {
-          allConflicts.push(...propRes.conflicts);
+          const normalizedConflicts = propRes.conflicts.map((c) => ({
+            ...c,
+            canonicalFieldKey: c.canonicalFieldKey || canonicalKey,
+          }));
+          allConflicts.push(...normalizedConflicts);
         }
       } catch (err) {
         console.warn(`No se pudo propagar campo ${canonicalKey}:`, err);
@@ -189,10 +203,16 @@ async function save(propagate = true) {
       ).join(", ")}.`;
     }
 
-    if (allConflicts.length > 0) {
-      detectedConflicts.value = allConflicts;
-      currentConflict.value = allConflicts[0];
-      conflictModalOpen.value = true;
+    // Filtrar estrictamente solo conflictos con canonicalFieldKey válido
+    const validConflicts = allConflicts.filter(
+      (c) => c.canonicalFieldKey && c.canonicalFieldKey.trim() !== "",
+    );
+    if (validConflicts.length > 0) {
+      detectedConflicts.value = validConflicts;
+      currentConflict.value = validConflicts[0];
+    } else {
+      detectedConflicts.value = [];
+      currentConflict.value = null;
     }
   }
 
@@ -207,15 +227,24 @@ async function handleResolveConflict() {
     return;
   }
 
+  const mapping = mappedCanonicalFields.value.find(
+    (m) =>
+      m.schemaPath === currentConflict.value?.fieldPath ||
+      m.targetKey === currentConflict.value?.fieldPath,
+  );
+  const canonicalKey =
+    currentConflict.value.canonicalFieldKey ||
+    mapping?.canonicalFieldKey ||
+    mapping?.targetKey ||
+    "";
+
+  if (!canonicalKey) {
+    alert("Error: No se encontró la clave canónica del conflicto seleccionado.");
+    return;
+  }
+
   resolvingConflict.value = true;
   try {
-    const mapping = mappedCanonicalFields.value.find(
-      (m) =>
-        m.schemaPath === currentConflict.value?.fieldPath ||
-        m.targetKey === currentConflict.value?.fieldPath,
-    );
-    const canonicalKey = mapping?.canonicalFieldKey || mapping?.targetKey || "";
-
     await resolveCanonicalConflict(instance.value.processId, {
       canonicalFieldKey: canonicalKey,
       strategy: conflictForm.strategy,
@@ -226,11 +255,22 @@ async function handleResolveConflict() {
       justification: conflictForm.justification.trim(),
     });
 
-    conflictModalOpen.value = false;
-    currentConflict.value = null;
+    // Remover conflicto resuelto de la lista
+    detectedConflicts.value = detectedConflicts.value.filter(
+      (c) => c.canonicalFieldKey !== canonicalKey && c !== currentConflict.value,
+    );
+
     conflictForm.justification = "";
     conflictForm.manualValue = "";
-    message.value = "Conflicto canónico resuelto satisfactoriamente.";
+
+    if (detectedConflicts.value.length > 0) {
+      currentConflict.value = detectedConflicts.value[0];
+    } else {
+      conflictModalOpen.value = false;
+      currentConflict.value = null;
+    }
+
+    message.value = `Conflicto canónico '${canonicalKey}' resuelto satisfactoriamente.`;
     await load();
   } catch (err) {
     alert(getApiError(err));
@@ -444,6 +484,26 @@ onMounted(load);
       </div>
 
       <div class="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          class="focus-ring rounded-lg border border-indigo-300 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-900 hover:bg-indigo-100 cursor-pointer shadow-xs flex items-center gap-1.5"
+          title="Ver formato institucional original oficial en blanco"
+          @click="openInstitutionalViewer('ORIGINAL')"
+        >
+          <span>🏛️</span>
+          <span>Formato Original</span>
+        </button>
+
+        <button
+          type="button"
+          class="focus-ring rounded-lg border border-teal-600 bg-teal-600 px-3 py-2 text-xs font-semibold text-white hover:bg-teal-700 cursor-pointer shadow-xs flex items-center gap-1.5"
+          title="Previsualizar formato diligenciado sobre fondo institucional"
+          @click="openInstitutionalViewer('DILIGENCED')"
+        >
+          <span>📝</span>
+          <span>Previsualizar Diligenciado</span>
+        </button>
+
         <button
           type="button"
           class="focus-ring rounded-lg border border-teal-600 bg-white px-3 py-2 text-xs font-semibold text-teal-800 hover:bg-teal-50 cursor-pointer shadow-xs flex items-center gap-1.5"
@@ -726,6 +786,32 @@ onMounted(load);
         <span>{{ propagationSuccessMessage }}</span>
       </div>
 
+      <!-- Banner de Divergencias Canónicas Detectadas (No bloqueante) -->
+      <div
+        v-if="detectedConflicts.length > 0"
+        class="mb-4 rounded-xl bg-amber-50 border-2 border-amber-300 p-4 text-xs text-amber-900 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs"
+      >
+        <div class="flex items-start gap-2.5">
+          <span class="text-xl">⚠️</span>
+          <div>
+            <strong class="font-bold text-amber-950">
+              Divergencia canónica detectada ({{ detectedConflicts.length }} campo(s)):
+            </strong>
+            <p class="text-amber-800 mt-0.5">
+              La revisión local del documento fue guardada y asegurada con éxito. Existen valores divergentes en otros anexos abiertos que requieren conciliación.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          class="shrink-0 rounded-lg bg-amber-600 hover:bg-amber-700 px-3.5 py-2 text-xs font-bold text-white shadow-xs cursor-pointer transition flex items-center gap-1.5"
+          @click="conflictModalOpen = true"
+        >
+          <span>⚖️</span>
+          <span>Revisar Divergencias ({{ detectedConflicts.length }})</span>
+        </button>
+      </div>
+
       <p v-if="controller.error" class="mb-4 rounded-xl bg-[#fff0ef] p-3 text-sm text-[#ad4039]">
         {{ controller.error }}
       </p>
@@ -815,11 +901,17 @@ onMounted(load);
 
         <div class="space-y-2 bg-slate-50 p-4 rounded-xl text-xs text-slate-700">
           <p>
+            <strong>Clave Canónica:</strong>
+            <span class="font-mono ml-1 text-purple-700 font-bold">
+              {{ currentConflict.canonicalFieldKey || "Pendiente de mapeo" }}
+            </span>
+          </p>
+          <p>
             <strong>Documento Destino:</strong>
             <span class="font-mono ml-1 text-indigo-700">{{ currentConflict.documentCode }}</span>
           </p>
           <p>
-            <strong>Campo:</strong>
+            <strong>Campo / Ruta:</strong>
             <span class="font-mono ml-1">{{ currentConflict.fieldPath }}</span>
           </p>
           <p>
@@ -969,5 +1061,18 @@ onMounted(load);
         </div>
       </div>
     </div>
+
+    <!-- Visor de Formato Institucional Oficial GODT (Fase G.1.3) -->
+    <InstitutionalDocumentViewerModal
+      v-if="instance"
+      :show="showInstitutionalModal"
+      :document-code="instance.documentCode"
+      :instance-id="instance.id"
+      :document-title="instance.documentCode"
+      :status="instance.status"
+      :revision-number="instance.currentRevision?.revisionNumber"
+      :initial-tab="institutionalInitialTab"
+      @close="showInstitutionalModal = false"
+    />
   </section>
 </template>

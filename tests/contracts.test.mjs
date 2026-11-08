@@ -82,3 +82,30 @@ test("frontend enforces authenticated navigation and expires sessions on 401", a
   assert.match(api, /session-expired/);
   assert.match(docs, /setTimeout\(\(\) => URL\.revokeObjectURL/);
 });
+
+test("frontend institution & document viewer contracts preserve verified endpoints (Fase G.1.3)", async () => {
+  const [institutions, instTypes, canonicalTypes] = await Promise.all([
+    source("services/institutions.ts"),
+    source("types/institutions.ts"),
+    source("types/canonical.ts"),
+  ]);
+
+  for (const route of [
+    "/institutions/search",
+    "/institutions",
+    "/institutions/${institutionId}/request-association",
+    "/catalogs/clinical-services",
+    "/catalogs/professionals",
+    "/document-templates/institutional-inventory",
+    "/document-templates/${code}/original-metadata",
+    "/document-templates/${code}/original-file",
+    "/document-instances/${instanceId}/preview-pdf",
+  ]) {
+    assert.match(institutions, new RegExp(route.replace(/[${}]/g, "\\$&")));
+  }
+
+  assert.match(instTypes, /export interface InstitutionSearchResult/);
+  assert.match(instTypes, /export interface InstitutionalDocumentMetadata/);
+  assert.match(instTypes, /export interface CreateInstitutionPayload/);
+  assert.match(canonicalTypes, /canonicalFieldKey\?: string/);
+});

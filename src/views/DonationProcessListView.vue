@@ -3,6 +3,7 @@ import { onMounted, reactive, ref } from "vue";
 import { useRouter } from "vue-router";
 import AppLayout from "../components/AppLayout.vue";
 import StatusBadge from "../components/StatusBadge.vue";
+import EntityAutocomplete from "../components/EntityAutocomplete.vue";
 import { useDonationProcessController } from "../controllers/useDonationProcessController";
 import { useDonorsStore } from "../stores/donors";
 import type { Donor } from "../types/donors";
@@ -312,12 +313,11 @@ function formatDate(iso: string): string {
               </div>
               <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div class="sm:col-span-2">
-                  <label class="block text-xs font-medium text-slate-700 mb-1">Servicio Clínico</label>
-                  <input
+                  <EntityAutocomplete
                     v-model="form.newDonor.clinicalService"
-                    type="text"
-                    placeholder="Ej. UCI Adultos / Urgencias"
-                    class="w-full px-3 py-1.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                    entity-type="SERVICE"
+                    label="Servicio Clínico de Origen"
+                    placeholder="Buscar servicio (ej. UCI Adultos, Urgencias...)"
                   />
                 </div>
                 <div>
@@ -341,15 +341,12 @@ function formatDate(iso: string): string {
             </div>
 
             <div>
-              <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">
-                IPS Principal del Operativo *
-              </label>
-              <input
+              <EntityAutocomplete
                 v-model="form.primaryIpsName"
-                type="text"
+                entity-type="IPS"
+                label="IPS Principal del Operativo"
+                placeholder="Escribe para buscar (ej. Imbanaco, HUV...)"
                 required
-                placeholder="Ej. Hospital Universitario del Valle"
-                class="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
               />
             </div>
 

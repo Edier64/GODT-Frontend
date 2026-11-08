@@ -23,6 +23,7 @@ import type {
   ConflictResolutionStrategy,
 } from "../types/canonical";
 import PdfViewerModal from "../components/PdfViewerModal.vue";
+import InstitutionalDocumentViewerModal from "../components/InstitutionalDocumentViewerModal.vue";
 import DocumentDropzone from "../components/DocumentDropzone.vue";
 import { documentLifecycleService } from "../services/documentLifecycle";
 import type { GeneratedPdfDocument } from "../types/document-lifecycle";
@@ -209,6 +210,15 @@ const selectedProcessPdfDocTitle = ref("");
 const selectedProcessInstanceId = ref("");
 const showProcessPdfModal = ref(false);
 const loadingPdfSnapshot = ref(false);
+
+// Modal de Formato Institucional Oficial (Fase G.1.3)
+const showInstitutionalModal = ref(false);
+const selectedDocForInstitutionalViewer = ref<ProcessDocument | null>(null);
+
+function openInstitutionalViewerForDoc(doc: ProcessDocument) {
+  selectedDocForInstitutionalViewer.value = doc;
+  showInstitutionalModal.value = true;
+}
 
 async function handleViewDocumentPdf(doc: ProcessDocument) {
   if (!doc.currentInstanceId) return;
@@ -1224,7 +1234,16 @@ function formatDate(iso?: string | null): string {
 
             <!-- Acciones por Posición -->
             <div class="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-1.5 flex-wrap">
+                <button
+                  type="button"
+                  class="px-2 py-1 text-xs text-indigo-700 bg-indigo-50 hover:bg-indigo-100 rounded-md transition cursor-pointer flex items-center gap-1 font-medium"
+                  title="Visualizar formato institucional oficial"
+                  @click="openInstitutionalViewerForDoc(doc)"
+                >
+                  <span>🏛️</span>
+                  <span>Formato</span>
+                </button>
                 <button
                   type="button"
                   class="px-2.5 py-1 text-xs text-slate-600 hover:text-indigo-600 hover:bg-slate-100 rounded-md transition cursor-pointer"
@@ -2574,6 +2593,17 @@ function formatDate(iso?: string | null): string {
       :snapshot="selectedProcessPdfSnapshot"
       :document-title="selectedProcessPdfDocTitle"
       @close="showProcessPdfModal = false"
+    />
+
+    <!-- Modal de Formato Institucional Oficial (Fase G.1.3) -->
+    <InstitutionalDocumentViewerModal
+      v-if="showInstitutionalModal && selectedDocForInstitutionalViewer"
+      :show="showInstitutionalModal"
+      :document-code="selectedDocForInstitutionalViewer.documentCode"
+      :instance-id="selectedDocForInstitutionalViewer.currentInstanceId || undefined"
+      :document-title="selectedDocForInstitutionalViewer.title"
+      :status="selectedDocForInstitutionalViewer.status"
+      @close="showInstitutionalModal = false"
     />
 
     <!-- MODAL 1: Solicitar Exportación de Expediente (Fase E) -->
