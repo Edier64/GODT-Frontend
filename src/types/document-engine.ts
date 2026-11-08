@@ -61,8 +61,10 @@ export interface UiFieldConfig {
   description?: string;
   help?: string;
   readonly?: boolean;
-  component?: "input" | "textarea" | "table";
+  component?: "input" | "textarea" | "table" | "entity-autocomplete";
   columns?: UiTableColumn[];
+  entityType?: "IPS" | "SERVICE" | "PROFESSIONAL";
+  placeholder?: string;
 }
 
 export interface MappingConfig {

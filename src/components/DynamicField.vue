@@ -4,6 +4,7 @@ import type { DependencyConfig, DocumentProvenance, JsonSchema, JsonSchemaType, 
 import type { CanonicalObservation } from "../types/canonical";
 import { dependencyForPath, evaluateDependency } from "../controllers/useDynamicFormController";
 import { getProcessCanonicalObservations } from "../services/canonical";
+import EntityAutocomplete from "./EntityAutocomplete.vue";
 
 const props = withDefaults(defineProps<{
   name: string;
@@ -80,6 +81,23 @@ const fieldProvenance = computed(() => {
   return props.provenanceList.find(
     (p) => p.fieldPath === path || p.fieldPath === props.name,
   );
+});
+
+const isEntityField = computed(() => {
+  if (props.ui?.component === "entity-autocomplete") return true;
+  const path = normalizedPath.value.toLowerCase();
+  const title = (props.schema.title || "").toLowerCase();
+  const keywords = ["ips", "institucion", "hospital", "clinica", "servicio", "medico", "cirujano", "profesional", "cot"];
+  return keywords.some((k) => path.includes(k) || title.includes(k));
+});
+
+const entityFieldType = computed<"IPS" | "SERVICE" | "PROFESSIONAL">(() => {
+  if (props.ui?.entityType) return props.ui.entityType as "IPS" | "SERVICE" | "PROFESSIONAL";
+  const path = normalizedPath.value.toLowerCase();
+  const title = (props.schema.title || "").toLowerCase();
+  if (path.includes("servicio") || title.includes("servicio")) return "SERVICE";
+  if (path.includes("medico") || path.includes("cirujano") || path.includes("profesional") || path.includes("cot") || title.includes("médico") || title.includes("cirujano")) return "PROFESSIONAL";
+  return "IPS";
 });
 
 const observations = ref<CanonicalObservation[]>([]);
@@ -259,6 +277,16 @@ function readableName(path: string) {
     <select v-if="schema.enum" v-model="value" class="focus-ring mt-2 w-full rounded-lg border border-[#cbdce2] px-3 py-3 text-sm font-normal transition-colors" :class="{ 'bg-slate-100/90 text-slate-600 cursor-not-allowed border-slate-300': isDisabled }" :disabled="isDisabled"><option v-if="nullable" :value="null">Sin valor</option><option v-else value="">Selecciona una opción</option><option v-for="option in schema.enum" :key="JSON.stringify(option)" :value="option">{{ formatOption(option) }}</option></select>
     <input v-else-if="isBoolean" v-model="value" type="checkbox" class="focus-ring mt-3 h-4 w-4 rounded border-[#cbdce2]" :class="{ 'cursor-not-allowed opacity-60': isDisabled }" :disabled="isDisabled" />
     <textarea v-else-if="schema.format === 'textarea' || ui?.component === 'textarea'" v-model="textValue" class="focus-ring mt-2 min-h-24 w-full rounded-lg border border-[#cbdce2] p-3 text-sm font-normal transition-colors" :class="{ 'bg-slate-100/90 text-slate-600 cursor-not-allowed border-slate-300': isDisabled }" :readonly="isDisabled" />
+    <div v-else-if="isEntityField" class="mt-2">
+      <EntityAutocomplete
+        :model-value="textValue"
+        :entity-type="entityFieldType"
+        :disabled="isDisabled"
+        :required="required"
+        :placeholder="ui?.placeholder || `Buscar o seleccionar ${entityFieldType === 'IPS' ? 'institución (IPS)' : entityFieldType === 'SERVICE' ? 'servicio clínico' : 'profesional'}...`"
+        @update:model-value="textValue = $event"
+      />
+    </div>
     <input v-else v-model="textValue" class="focus-ring mt-2 w-full rounded-lg border border-[#cbdce2] px-3 py-3 text-sm font-normal transition-colors" :class="{ 'bg-slate-100/90 text-slate-600 cursor-not-allowed border-slate-300': isDisabled }" :type="inputType" :min="schema.minimum" :max="schema.maximum" :minlength="schema.minLength" :maxlength="schema.maxLength" :pattern="schema.pattern" :readonly="isDisabled" />
     <span v-if="error" class="mt-1 block text-xs font-normal text-[#ad4039]">{{ error }}</span>
   </label>

@@ -80,3 +80,4 @@ export function getPreviewPdfUrl(instanceId: string, download = false): string {
   const base = api.defaults.baseURL || "/api/v1";
   return `${base}/document-instances/${instanceId}/preview-pdf?download=${download}`;
 }
+
