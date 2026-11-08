@@ -96,9 +96,9 @@ const filteredTemplates = computed(() => {
       <div class="flex items-start gap-3">
         <span class="text-lg">ℹ️</span>
         <div>
-          <p class="font-bold text-slate-800 text-sm">Posiciones normativas complementarias (20 a 23)</p>
+          <p class="font-bold text-slate-800 text-sm">Posiciones normativas reservadas (POS_NORMATIVA_20 a POS_NORMATIVA_23)</p>
           <p class="mt-1 leading-relaxed">
-            Las posiciones 20 a 23 del paquete documental oficial (Historias clínicas externas, soportes complementarios no estandarizados) permanecen en estado <code>PENDING_HOMOLOGATION</code> y no requieren plantillas dinámicas en este catálogo. Dichos soportes se incorporan como documentos fuente en la cadena de custodia del operativo.
+            Las posiciones 20 a 23 del paquete documental oficial (<code>POS_NORMATIVA_20</code>, <code>POS_NORMATIVA_21</code>, <code>POS_NORMATIVA_22</code> y <code>POS_NORMATIVA_23</code>) son posiciones normativas reservadas en estado <code>PENDING_HOMOLOGATION</code> y no cuentan con plantillas dinámicas en este catálogo. Los documentos complementarios clínicos (Cálculo Hemodilución, Evaluación de riesgo COVID-19 Tissue Bank, HC Donante 2024, Historia Clínica Tissue Bank) constituyen <strong>Documentos Fuente independientes</strong> y se incorporan como evidencias adjuntas en la cadena de custodia del operativo, sin asignarse como anexos normativos a dichas posiciones reservadas.
           </p>
         </div>
       </div>
