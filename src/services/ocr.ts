@@ -30,5 +30,16 @@ export const ocrService = {
   async propagateToProcess(processId: string, fieldId: string): Promise<OcrField> {
     const { data } = await api.post<OcrField>(`/processes/${processId}/ocr/propagate`, { fieldId });
     return data;
+  },
+  async batchPropagateToProcess(
+    processId: string,
+    items: Array<{
+      fieldId: string;
+      status: "CONFIRMADO" | "MODIFICADO" | "RECHAZADO";
+      confirmedValue?: string;
+    }>,
+  ): Promise<any[]> {
+    const { data } = await api.post<any[]>(`/processes/${processId}/ocr/batch-propagate`, { items });
+    return data;
   }
 };

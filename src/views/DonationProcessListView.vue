@@ -15,13 +15,17 @@ const {
   error,
   loadProcesses,
   openProcess,
+  intakeClinicalHistory,
 } = useDonationProcessController();
 
 const donorsStore = useDonorsStore();
 
 const filterStatus = ref<string>("");
 const showModal = ref(false);
-const creationMode = ref<"EXISTING" | "NEW">("EXISTING");
+const creationMode = ref<"EXISTING" | "NEW" | "CLINICAL_HISTORY">("EXISTING");
+const clinicalFile = ref<File | null>(null);
+const fileInputRef = ref<HTMLInputElement | null>(null);
+const intakeError = ref<string | null>(null);
 
 const form = reactive({
   donorId: "",
@@ -52,6 +56,17 @@ async function handleFilter() {
 
 function openCreateModal() {
   creationMode.value = donorsStore.page.items.length > 0 ? "EXISTING" : "NEW";
+  resetForm();
+  showModal.value = true;
+}
+
+function openClinicalIntakeModal() {
+  creationMode.value = "CLINICAL_HISTORY";
+  resetForm();
+  showModal.value = true;
+}
+
+function resetForm() {
   form.donorId = "";
   form.primaryIpsName = "";
   form.processCode = "";
@@ -61,7 +76,11 @@ function openCreateModal() {
   form.newDonor.clinicalService = "UCI Adultos";
   form.newDonor.bloodGroup = "";
   form.newDonor.rhFactor = "";
-  showModal.value = true;
+  clinicalFile.value = null;
+  intakeError.value = null;
+  if (fileInputRef.value) {
+    fileInputRef.value.value = "";
+  }
 }
 
 function onDonorChange() {
@@ -71,8 +90,61 @@ function onDonorChange() {
   }
 }
 
+function onFileChange(event: Event) {
+  const target = event.target as HTMLInputElement;
+  intakeError.value = null;
+  if (target.files && target.files.length > 0) {
+    const file = target.files[0];
+    const allowed = [
+      "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/msword",
+    ];
+    const isDocxOrPdf =
+      allowed.includes(file.type) ||
+      file.name.endsWith(".pdf") ||
+      file.name.endsWith(".docx");
+
+    if (!isDocxOrPdf) {
+      intakeError.value = "El archivo debe ser en formato PDF o DOCX.";
+      clinicalFile.value = null;
+      return;
+    }
+
+    if (file.size > 20 * 1024 * 1024) {
+      intakeError.value = "El tamaño del archivo no puede exceder los 20 MB.";
+      clinicalFile.value = null;
+      return;
+    }
+
+    clinicalFile.value = file;
+  }
+}
+
 async function handleCreate() {
+  intakeError.value = null;
   if (!form.primaryIpsName.trim()) return;
+
+  if (creationMode.value === "CLINICAL_HISTORY") {
+    if (!clinicalFile.value) {
+      intakeError.value = "Debe adjuntar el archivo de la historia clínica.";
+      return;
+    }
+    const result = await intakeClinicalHistory({
+      file: clinicalFile.value,
+      primaryIpsName: form.primaryIpsName.trim(),
+      notes: form.notes.trim() || undefined,
+      processCode: form.processCode.trim() || undefined,
+    });
+    if (result) {
+      showModal.value = false;
+      router.push({
+        path: `/procesos/${result.process.id}`,
+        query: { tab: "sources", openOcrDoc: result.sourceDocument.id },
+      });
+    }
+    return;
+  }
 
   if (creationMode.value === "EXISTING" && !form.donorId) return;
 
@@ -124,16 +196,26 @@ function formatDate(iso: string): string {
             Gestión de operativos de donación, rescate y coordinación regional
           </p>
         </div>
-        <button
-          type="button"
-          class="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-sm text-sm font-medium transition cursor-pointer"
-          @click="openCreateModal"
-        >
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-          </svg>
-          Abrir Nuevo Proceso
-        </button>
+        <div class="flex items-center gap-2">
+          <button
+            type="button"
+            class="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-lg shadow-sm text-sm font-medium transition cursor-pointer"
+            @click="openClinicalIntakeModal"
+          >
+            <span>📄</span>
+            Ingesta desde Historia Clínica
+          </button>
+          <button
+            type="button"
+            class="inline-flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg shadow-sm text-sm font-medium transition cursor-pointer"
+            @click="openCreateModal"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+            </svg>
+            Abrir Nuevo Proceso
+          </button>
+        </div>
       </div>
 
       <!-- Filtros -->
@@ -245,28 +327,95 @@ function formatDate(iso: string): string {
           </div>
 
           <form class="p-6 space-y-4" @submit.prevent="handleCreate">
-            <!-- Modalidad de Donante: Existente vs Desde Cero -->
+            <!-- Modalidad de Donante: Existente vs Desde Cero vs Ingesta HC -->
             <div class="flex rounded-lg bg-slate-100 p-1 border border-slate-200">
               <button
                 type="button"
-                class="flex-1 py-1.5 px-3 rounded-md text-xs font-semibold transition"
+                class="flex-1 py-1.5 px-2 rounded-md text-xs font-semibold transition"
                 :class="creationMode === 'EXISTING' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'"
                 @click="creationMode = 'EXISTING'"
               >
-                Seleccionar Donante Existente
+                Donante Existente
               </button>
               <button
                 type="button"
-                class="flex-1 py-1.5 px-3 rounded-md text-xs font-semibold transition"
+                class="flex-1 py-1.5 px-2 rounded-md text-xs font-semibold transition"
                 :class="creationMode === 'NEW' ? 'bg-white text-indigo-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'"
                 @click="creationMode = 'NEW'"
               >
-                Iniciar Nuevo Donante (Desde Cero)
+                Nuevo Donante (Manual)
+              </button>
+              <button
+                type="button"
+                class="flex-1 py-1.5 px-2 rounded-md text-xs font-semibold transition flex items-center justify-center gap-1"
+                :class="creationMode === 'CLINICAL_HISTORY' ? 'bg-white text-teal-700 shadow-xs' : 'text-slate-600 hover:text-slate-900'"
+                @click="creationMode = 'CLINICAL_HISTORY'"
+              >
+                <span>📄</span>
+                Ingesta HC (OCR / IA)
               </button>
             </div>
 
+            <!-- Error de Ingesta -->
+            <div v-if="intakeError" class="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700">
+              {{ intakeError }}
+            </div>
+
+            <!-- Modo Ingesta desde Historia Clínica -->
+            <div v-if="creationMode === 'CLINICAL_HISTORY'" class="space-y-3 p-3.5 bg-teal-50/60 rounded-xl border border-teal-200">
+              <div class="flex items-start gap-2 text-xs text-teal-950">
+                <span class="text-base leading-none">🤖</span>
+                <div class="leading-relaxed">
+                  <strong>Extracción Inteligente:</strong> Cargue el documento clínico del potencial donante (PDF o DOCX). El motor GODT procesará el archivo mediante OCR e IA (Gemini / Reglas Locales) para autollenar los campos compatibles de los formularios oficiales.
+                </div>
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 mb-1">
+                  Archivo de Historia Clínica * (PDF o DOCX, máx 20MB)
+                </label>
+                <div
+                  class="border-2 border-dashed border-teal-300 hover:border-teal-400 bg-white rounded-xl p-4 text-center cursor-pointer transition"
+                  @click="fileInputRef?.click()"
+                >
+                  <input
+                    ref="fileInputRef"
+                    type="file"
+                    accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    class="hidden"
+                    @change="onFileChange"
+                  />
+                  <div v-if="!clinicalFile" class="space-y-1">
+                    <span class="text-2xl">📋</span>
+                    <p class="text-xs font-medium text-slate-700">
+                      Haga clic para seleccionar o arrastre el archivo aquí
+                    </p>
+                    <p class="text-[11px] text-slate-400">PDF con capa digital/escaneada o documento DOCX</p>
+                  </div>
+                  <div v-else class="flex items-center justify-between gap-2 p-1">
+                    <div class="flex items-center gap-2 text-left truncate">
+                      <span class="text-lg">📄</span>
+                      <div class="truncate">
+                        <p class="text-xs font-bold text-slate-800 truncate">{{ clinicalFile.name }}</p>
+                        <p class="text-[10px] text-slate-500 font-mono">
+                          {{ (clinicalFile.size / (1024 * 1024)).toFixed(2) }} MB
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      class="px-2 py-1 text-xs text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded font-semibold cursor-pointer"
+                      @click.stop="clinicalFile = null; if (fileInputRef) fileInputRef.value = '';"
+                    >
+                      Cambiar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <!-- Modo Donante Existente -->
-            <div v-if="creationMode === 'EXISTING'">
+            <div v-else-if="creationMode === 'EXISTING'">
               <label class="block text-xs font-semibold text-slate-700 uppercase mb-1">
                 Donante Asociado *
               </label>
@@ -385,9 +534,18 @@ function formatDate(iso: string): string {
               <button
                 type="submit"
                 :disabled="loading"
-                class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-medium transition cursor-pointer disabled:opacity-50"
+                class="px-4 py-2 rounded-lg text-sm font-medium transition cursor-pointer disabled:opacity-50 text-white"
+                :class="creationMode === 'CLINICAL_HISTORY' ? 'bg-teal-600 hover:bg-teal-700' : 'bg-indigo-600 hover:bg-indigo-700'"
               >
-                {{ loading ? "Abriendo..." : "Aperturar Proceso" }}
+                {{
+                  loading
+                    ? creationMode === "CLINICAL_HISTORY"
+                      ? "Analizando con OCR e IA..."
+                      : "Abriendo..."
+                    : creationMode === "CLINICAL_HISTORY"
+                      ? "Subir y Analizar Historia Clínica"
+                      : "Aperturar Proceso"
+                }}
               </button>
             </div>
           </form>

@@ -18,6 +18,9 @@ import {
   getDonationProcess,
   getProcessDocuments,
   initiateProcessDocument,
+  intakeFromClinicalHistory,
+  IntakeFromClinicalHistoryPayload,
+  IntakeFromClinicalHistoryResponse,
   listDonationProcesses,
   updateDocumentApplicability,
   updateDonationProcess,
@@ -215,6 +218,23 @@ export function useDonationProcessController() {
     }
   }
 
+  async function intakeClinicalHistory(
+    payload: IntakeFromClinicalHistoryPayload,
+  ): Promise<IntakeFromClinicalHistoryResponse | null> {
+    loading.value = true;
+    error.value = null;
+    try {
+      const result = await intakeFromClinicalHistory(payload);
+      processes.value.unshift(result.process);
+      return result;
+    } catch (err) {
+      error.value = getApiError(err);
+      return null;
+    } finally {
+      loading.value = false;
+    }
+  }
+
   return {
     processes,
     currentProcess,
@@ -231,6 +251,7 @@ export function useDonationProcessController() {
     initiateDocument,
     checkDependencies,
     openProcess,
+    intakeClinicalHistory,
     changeStatus,
     attachInstitution,
     attachParticipant,

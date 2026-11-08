@@ -620,6 +620,7 @@ async function handlePropagateField(field: OcrField) {
     await ocrService.propagateToProcess(processId.value, field.id);
     propagatedSuccessMap.value[field.id] = true;
     await loadCanonical();
+    await loadDocuments(processId.value);
   } catch (err: any) {
     alert("Error al propagar campo a datos canónicos: " + getApiError(err));
   } finally {
@@ -632,22 +633,36 @@ async function handlePropagateAllConfirmed() {
   propagatingAll.value = true;
   let successCount = 0;
   try {
-    for (const field of extractedOcrFields.value) {
-      if (
-        field.validationStatus === "CONFIRMADO" ||
-        field.validationStatus === "MODIFICADO"
-      ) {
-        try {
-          await ocrService.propagateToProcess(processId.value, field.id);
-          propagatedSuccessMap.value[field.id] = true;
+    const itemsToPropagate = extractedOcrFields.value
+      .filter((f) => f.validationStatus === "CONFIRMADO" || f.validationStatus === "MODIFICADO")
+      .map((f) => ({
+        fieldId: f.id,
+        status: f.validationStatus as "CONFIRMADO" | "MODIFICADO",
+        confirmedValue: f.confirmedValue || undefined,
+      }));
+
+    if (itemsToPropagate.length > 0) {
+      try {
+        const results = await ocrService.batchPropagateToProcess(processId.value, itemsToPropagate);
+        for (const res of results) {
+          propagatedSuccessMap.value[res.fieldId] = true;
           successCount++;
-        } catch {
-          // Continuar con los siguientes
+        }
+      } catch {
+        // Fallback campo por campo si el batch falla
+        for (const item of itemsToPropagate) {
+          try {
+            await ocrService.propagateToProcess(processId.value, item.fieldId);
+            propagatedSuccessMap.value[item.fieldId] = true;
+            successCount++;
+          } catch {}
         }
       }
     }
+
     await loadCanonical();
-    alert(`Se propagaron exitosamente ${successCount} campo(s) al diccionario canónico del proceso.`);
+    await loadDocuments(processId.value);
+    alert(`Se propagaron exitosamente ${successCount} campo(s) al diccionario canónico y formularios del proceso.`);
   } finally {
     propagatingAll.value = false;
   }
@@ -660,6 +675,25 @@ onMounted(async () => {
     await loadCanonical();
     await loadDossierExports();
     await loadSources();
+
+    if (route.query.tab === "sources" || route.query.openOcrDoc) {
+      activeMainTab.value = "SOURCES";
+    }
+
+    if (route.query.openOcrDoc) {
+      let targetDoc = sourceDocuments.value.find(
+        (d) => d.id === route.query.openOcrDoc,
+      );
+      if (!targetDoc) {
+        await loadSources();
+        targetDoc = sourceDocuments.value.find(
+          (d) => d.id === route.query.openOcrDoc,
+        );
+      }
+      if (targetDoc) {
+        await handleOpenOcrReview(targetDoc);
+      }
+    }
   }
 });
 
