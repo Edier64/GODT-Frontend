@@ -74,8 +74,11 @@ export interface CanonicalConflict {
   instanceId: string;
   documentCode: string;
   fieldPath: string;
+  canonicalFieldKey?: string;
   existingValue: unknown;
   proposedValue: unknown;
+  existingSourceKind?: string;
+  existingEffectiveAt?: string;
 }
 
 export interface CanonicalObservation {

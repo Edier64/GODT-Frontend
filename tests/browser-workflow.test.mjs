@@ -252,6 +252,34 @@ test("E2E Navigation Workflow: Institutional Login -> Process Detail -> 23 Posit
     const donorData = await donorRes.json();
     const donorId = donorData.id;
 
+    console.log("5.1. Testing Autocomplete and Alias Resolution (Fase G.1.3)...");
+    const searchRes = await fetch(`http://127.0.0.1:${BACKEND_PORT}/api/v1/institutions/search?q=Imbanaco`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    assert.equal(searchRes.status, 200, "Search institutions must return 200");
+    const searchData = await searchRes.json();
+    const imbanacoMatch = searchData.results?.find(r => r.name === "Clínica Imbanaco");
+    assert.ok(imbanacoMatch, "Must resolve alias 'Imbanaco' to 'Clínica Imbanaco'");
+    assert.equal(imbanacoMatch.matchType, "ALIAS");
+    console.log("Autocomplete alias successfully matched:", imbanacoMatch.name, "via alias:", imbanacoMatch.matchedAlias);
+
+    console.log("5.2. Testing Institutional Templates Inventory and Original Blank File (Fase G.1.3)...");
+    const invRes = await fetch(`http://127.0.0.1:${BACKEND_PORT}/api/v1/document-templates/institutional-inventory`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    assert.equal(invRes.status, 200, "Inventory must return 200");
+    const invData = await invRes.json();
+    console.log("Official institutional templates count:", invData.totalTemplates);
+    assert.ok(invData.totalTemplates >= 19, "Must list all 19 official templates");
+
+    const blankRes = await fetch(`http://127.0.0.1:${BACKEND_PORT}/api/v1/document-templates/anexo_1/original-file`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    assert.equal(blankRes.status, 200);
+    const blankBuf = Buffer.from(await blankRes.arrayBuffer());
+    assert.equal(blankBuf.subarray(0, 5).toString("utf-8"), "%PDF-", "Original blank template must be valid PDF");
+    console.log("Original institutional blank PDF size in bytes:", blankBuf.length);
+
     // Create fresh process
     const processRes = await fetch(`http://127.0.0.1:${BACKEND_PORT}/api/v1/donation-processes`, {
       method: "POST",
@@ -368,6 +396,17 @@ test("E2E Navigation Workflow: Institutional Login -> Process Detail -> 23 Posit
     assert.equal(saveRevRes.status, 200, "Revision save must succeed");
     const revResult = await saveRevRes.json();
     console.log("Saved revision ID:", revResult.currentRevisionId);
+
+    console.log("10.1. Testing Live Preview PDF Overlay over Original Institutional PDF (Fase G.1.3)...");
+    const previewRes = await fetch(`http://127.0.0.1:${BACKEND_PORT}/api/v1/document-instances/${instanceId}/preview-pdf`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
+    assert.equal(previewRes.status, 200, "Preview PDF endpoint must return 200");
+    assert.equal(previewRes.headers.get("content-type"), "application/pdf");
+    const previewBuf = Buffer.from(await previewRes.arrayBuffer());
+    assert.equal(previewBuf.subarray(0, 5).toString("utf-8"), "%PDF-", "Preview PDF must start with %PDF-");
+    console.log("Preview PDF size in bytes (overlay on institutional background):", previewBuf.length);
+    assert.ok(previewBuf.length > 500, "Preview PDF must not be empty");
 
     // Assign participant with signature requirement
     await fetch(
