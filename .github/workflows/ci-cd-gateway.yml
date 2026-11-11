@@ -1,0 +1,154 @@
+name: Frontend CI/CD (godt-gateway)
+
+on:
+  pull_request:
+    branches:
+      - main
+      - feature/clinical-history-donor-intake-ocr
+      - feature/aca-docker-preparation
+  push:
+    branches:
+      - feature/clinical-history-donor-intake-ocr
+      - feature/aca-docker-preparation
+  workflow_dispatch:
+    inputs:
+      target_environment:
+        description: "Ambiente destino (GitHub Environment)"
+        required: true
+        default: production
+        type: choice
+        options:
+          - staging
+          - production
+      push_image:
+        description: "Construir y publicar imagen en Azure Container Registry"
+        required: true
+        default: true
+        type: boolean
+      deploy_gateway:
+        description: "Desplegar nueva revisión de godt-gateway"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: frontend-ci-cd-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ci:
+    name: CI — Tests de Contratos, Auth y Build Vue
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Instalar dependencias reproducibles
+        run: npm ci
+
+      - name: Ejecutar tests de contratos y formularios
+        run: npm run test:contracts
+
+      - name: Ejecutar tests de flujo de autenticación
+        run: npm run test:auth
+
+      - name: Compilar aplicación Vue 3 + TypeScript
+        env:
+          VITE_API_BASE_URL: /api/v1
+          VITE_ENVIRONMENT: production
+        run: npm run build
+
+      - name: Configurar Docker Buildx
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Validar build Docker local (godt-gateway) sin push
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          build-args: |
+            VITE_API_BASE_URL=/api/v1
+            VITE_ENVIRONMENT=production
+
+  build-and-push:
+    name: Build & Push godt-gateway a ACR (OIDC)
+    needs: ci
+    if: github.event_name == 'workflow_dispatch' && inputs.push_image == true
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target_environment }}
+    outputs:
+      image_tag: ${{ github.sha }}
+    steps:
+      - name: Checkout repositorio
+        uses: actions/checkout@v4
+
+      - name: Validar variables OIDC y ACR configuradas
+        run: |
+          test -n "${{ vars.AZURE_CLIENT_ID }}" || (echo "Falta vars.AZURE_CLIENT_ID" && exit 1)
+          test -n "${{ vars.AZURE_TENANT_ID }}" || (echo "Falta vars.AZURE_TENANT_ID" && exit 1)
+          test -n "${{ vars.AZURE_SUBSCRIPTION_ID }}" || (echo "Falta vars.AZURE_SUBSCRIPTION_ID" && exit 1)
+          test -n "${{ vars.AZURE_ACR_NAME }}" || (echo "Falta vars.AZURE_ACR_NAME" && exit 1)
+          test -n "${{ vars.AZURE_ACR_LOGIN_SERVER }}" || (echo "Falta vars.AZURE_ACR_LOGIN_SERVER" && exit 1)
+
+      - name: Autenticación Azure vía OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Login en Azure Container Registry
+        run: az acr login --name "${{ vars.AZURE_ACR_NAME }}"
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build y push imagen godt-gateway
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: |
+            ${{ vars.AZURE_ACR_LOGIN_SERVER }}/godt-gateway:${{ github.sha }}
+          build-args: |
+            VITE_API_BASE_URL=/api/v1
+            VITE_ENVIRONMENT=${{ inputs.target_environment }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-gateway:
+    name: Desplegar godt-gateway (Ingress externo HTTPS)
+    needs: build-and-push
+    if: github.event_name == 'workflow_dispatch' && inputs.push_image == true && inputs.deploy_gateway == true
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target_environment }}
+    steps:
+      - name: Autenticación Azure vía OIDC
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Actualizar revisión de godt-gateway en Azure Container Apps
+        run: |
+          test -n "${{ vars.AZURE_RESOURCE_GROUP }}" || (echo "Falta vars.AZURE_RESOURCE_GROUP" && exit 1)
+          test -n "${{ vars.ACA_GATEWAY_APP_NAME }}" || (echo "Falta vars.ACA_GATEWAY_APP_NAME" && exit 1)
+          az containerapp update \
+            --name "${{ vars.ACA_GATEWAY_APP_NAME }}" \
+            --resource-group "${{ vars.AZURE_RESOURCE_GROUP }}" \
+            --image "${{ vars.AZURE_ACR_LOGIN_SERVER }}/godt-gateway:${{ needs.build-and-push.outputs.image_tag }}"
