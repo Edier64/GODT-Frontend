@@ -1,0 +1,12 @@
+node_modules
+dist
+.env
+.env.*
+!.env.example
+*.log
+.git
+.gitignore
+docs
+screenshots
+tests
+# docker/ se INCLUYE porque nginx.conf está ahí

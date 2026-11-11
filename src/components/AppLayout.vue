@@ -1,22 +1,35 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from "vue";
-import { useRouter } from "vue-router";
+import { computed, onBeforeUnmount, onMounted } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { useAuthStore } from "../stores/auth";
 
 const auth = useAuthStore();
+const route = useRoute();
 const router = useRouter();
-const showToken = ref(false);
-const tokenDraft = ref(auth.token);
 
-function saveToken() {
-  auth.setToken(tokenDraft.value);
-  showToken.value = false;
+const userInitials = computed(() => {
+  const name = auth.user?.fullName?.trim();
+  if (!name) return "U";
+  const parts = name.split(/\s+/).filter(Boolean);
+  return parts
+    .slice(0, 2)
+    .map((p) => p[0]?.toUpperCase() ?? "")
+    .join("");
+});
+
+async function handleLogout() {
+  await auth.logout();
+  await router.replace({ path: "/acceso" });
 }
 
 function handleSessionExpired() {
-  auth.logout();
-  showToken.value = false;
-  void router.replace({ path: "/acceso", query: { reason: "expired" } });
+  auth.clearSession();
+  if (route.path !== "/acceso") {
+    void router.replace({
+      path: "/acceso",
+      query: { reason: "expired", redirect: route.fullPath },
+    });
+  }
 }
 
 onMounted(() => window.addEventListener("godt:session-expired", handleSessionExpired));
@@ -44,19 +57,28 @@ onBeforeUnmount(() => window.removeEventListener("godt:session-expired", handleS
         <span aria-disabled="true" class="block rounded-lg px-4 py-3 text-sm text-white/30">Reportes no disponibles</span>
       </nav>
       <div class="mt-auto hidden border-t border-white/10 p-4 lg:block space-y-2">
-        <button class="focus-ring flex w-full items-center gap-3 rounded-lg border border-white/15 px-3 py-2.5 text-left text-sm text-white/75 hover:bg-white/10 cursor-pointer" @click="showToken = true">
-          <span class="grid h-8 w-8 place-items-center rounded-full bg-[#159c9a] text-xs font-bold shrink-0">U</span>
+        <div v-if="auth.isAuthenticated && auth.user" class="flex items-center gap-3 rounded-lg border border-white/15 px-3 py-2.5 text-left text-sm text-white/90">
+          <span class="grid h-8 w-8 place-items-center rounded-full bg-[#159c9a] text-xs font-bold shrink-0">{{ userInitials }}</span>
           <span class="min-w-0 flex-1">
-            <span class="block text-xs font-semibold truncate">{{ auth.isAuthenticated ? "Sesión activa" : "Sin sesión" }}</span>
-            <span class="block text-[11px] text-white/45 truncate">Token / JWT</span>
+            <span class="block text-xs font-semibold truncate">{{ auth.user.fullName }}</span>
+            <span class="block text-[11px] text-white/55 truncate">{{ auth.user.role }} · {{ auth.user.email }}</span>
           </span>
+        </div>
+        <button
+          v-if="auth.isAuthenticated"
+          type="button"
+          :disabled="auth.loading"
+          class="flex w-full items-center justify-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-xs font-medium text-white/85 hover:bg-white/20 transition-colors cursor-pointer disabled:opacity-50"
+          @click="handleLogout"
+        >
+          <span>Cerrar sesión</span>
         </button>
         <RouterLink
+          v-else
           to="/acceso"
           class="flex items-center justify-center gap-2 rounded-lg bg-white/10 px-3 py-2 text-xs font-medium text-white/80 hover:bg-white/20 transition-colors"
         >
-          <span>🔐</span>
-          <span>{{ auth.isAuthenticated ? "Cambiar usuario / Acceso" : "Iniciar sesión institucional" }}</span>
+          <span>Iniciar sesión institucional</span>
         </RouterLink>
       </div>
     </aside>
@@ -67,33 +89,27 @@ onBeforeUnmount(() => window.removeEventListener("godt:session-expired", handleS
           <p class="mt-1 text-sm text-[#49636b]">Donación y trasplante de órganos y tejidos · GODT Regional 3</p>
         </div>
         <div class="flex items-center gap-2">
+          <span v-if="auth.isAuthenticated && auth.user" class="hidden text-xs font-medium text-[#123047] sm:inline lg:hidden">
+            {{ auth.user.fullName }} ({{ auth.user.role }})
+          </span>
+          <button
+            v-if="auth.isAuthenticated"
+            type="button"
+            class="focus-ring rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 lg:hidden cursor-pointer"
+            @click="handleLogout"
+          >
+            Cerrar sesión
+          </button>
           <RouterLink
+            v-else
             to="/acceso"
             class="focus-ring rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 lg:hidden"
           >
-            {{ auth.isAuthenticated ? "Sesión" : "Acceso" }}
+            Acceso
           </RouterLink>
-          <button class="focus-ring rounded-lg px-3 py-2 text-sm text-[#49636b] hover:bg-[#f1f6f7] lg:hidden" @click="showToken = true">
-            JWT
-          </button>
         </div>
       </header>
       <main class="mx-auto max-w-[1192px] p-5 sm:p-8 lg:py-10 w-full min-w-0"><slot><RouterView /></slot></main>
-    </div>
-    <div v-if="showToken" class="fixed inset-0 z-50 grid place-items-center bg-[#123c4a]/50 p-4 backdrop-blur-xs" @click.self="showToken = false">
-      <form class="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl space-y-4" @submit.prevent="saveToken">
-        <div>
-          <h2 class="text-lg font-bold text-[#17313b]">Token de acceso institucional</h2>
-          <p class="mt-1 text-xs text-[#6b8790]">
-            Puede ingresar a través del <RouterLink to="/acceso" class="text-teal-600 underline font-medium" @click="showToken = false">formulario institucional de acceso</RouterLink> o pegar directamente un token JWT Bearer válido.
-          </p>
-        </div>
-        <textarea v-model="tokenDraft" class="focus-ring w-full min-h-28 rounded-xl border border-[#cbdcdf] p-3 text-xs font-mono" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." />
-        <div class="flex justify-end gap-3 pt-2 border-t border-slate-100">
-          <button type="button" class="focus-ring rounded-lg px-4 py-2 text-xs font-medium text-[#49636b] hover:bg-slate-100 cursor-pointer" @click="showToken = false">Cancelar</button>
-          <button class="focus-ring rounded-lg bg-[#123047] px-4 py-2 text-xs font-semibold text-white hover:bg-[#1a3f5c] cursor-pointer" type="submit">Guardar Token</button>
-        </div>
-      </form>
     </div>
   </div>
 </template>

@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from "vue-router";
+import { useAuthStore } from "./stores/auth";
 import DashboardView from "./views/DashboardView.vue";
 import DonorsView from "./views/DonorsView.vue";
 import DocumentsView from "./views/DocumentsView.vue";
@@ -38,9 +39,36 @@ const router = createRouter({
   ]
 });
 
-router.beforeEach((to) => {
-  if (to.meta.public || localStorage.getItem("godt.jwtToken")) return true;
-  return { path: "/acceso", query: { redirect: to.fullPath } };
+function resolveSafeRedirect(raw: unknown): string {
+  if (typeof raw !== "string") return "/dashboard";
+  if (!raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/acceso")) {
+    return "/dashboard";
+  }
+  return raw;
+}
+
+router.beforeEach(async (to) => {
+  const auth = useAuthStore();
+
+  if (!auth.initialized) {
+    await auth.initializeSession();
+  }
+
+  if (to.meta.public) {
+    if (to.path === "/acceso" && auth.isAuthenticated && to.query.reason !== "expired") {
+      return resolveSafeRedirect(to.query.redirect);
+    }
+    return true;
+  }
+
+  if (auth.isAuthenticated) {
+    return true;
+  }
+
+  return {
+    path: "/acceso",
+    query: { redirect: to.fullPath },
+  };
 });
 
 export default router;

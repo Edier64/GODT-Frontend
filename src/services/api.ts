@@ -1,23 +1,67 @@
-import axios from "axios";
+import axios, { type InternalAxiosRequestConfig } from "axios";
+import {
+  getAccessToken,
+  notifySessionExpired,
+  requestSingleFlightRefresh,
+} from "./authSessionBridge";
+
+interface RetriableAxiosConfig extends InternalAxiosRequestConfig {
+  _retry?: boolean;
+}
+
+const AUTH_NO_REFRESH_PATHS = ["/auth/login", "/auth/refresh", "/auth/logout"];
 
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || "/api/v1",
+  baseURL: import.meta.env?.VITE_API_BASE_URL || "/api/v1",
   headers: { "Content-Type": "application/json" },
+  withCredentials: true,
   timeout: 15000,
 });
 
+function isAuthLifecycleUrl(url?: string): boolean {
+  if (!url) return false;
+  return AUTH_NO_REFRESH_PATHS.some((path) => url.includes(path));
+}
+
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("godt.jwtToken");
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+  const token = getAccessToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
   return config;
 });
 
-api.interceptors.response.use(undefined, (error) => {
-  if (axios.isAxiosError(error) && error.response?.status === 401) {
-    localStorage.removeItem("godt.jwtToken");
-    window.dispatchEvent(new CustomEvent("godt:session-expired"));
+api.interceptors.response.use(undefined, async (error) => {
+  if (!axios.isAxiosError(error) || error.response?.status !== 401 || !error.config) {
+    return Promise.reject(error);
   }
-  return Promise.reject(error);
+
+  const originalRequest = error.config as RetriableAxiosConfig;
+
+  if (isAuthLifecycleUrl(originalRequest.url)) {
+    return Promise.reject(error);
+  }
+
+  if (originalRequest._retry) {
+    notifySessionExpired();
+    return Promise.reject(error);
+  }
+
+  originalRequest._retry = true;
+
+  try {
+    const newAccessToken = await requestSingleFlightRefresh();
+    if (!newAccessToken) {
+      notifySessionExpired();
+      return Promise.reject(error);
+    }
+
+    originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+    return api(originalRequest);
+  } catch {
+    notifySessionExpired();
+    return Promise.reject(error);
+  }
 });
 
 export function getApiError(error: unknown): string {
@@ -40,12 +84,10 @@ export function getApiError(error: unknown): string {
       }
     }
 
-    // Si el backend envió un mensaje descriptivo específico (incluso en 400, 409, 422, etc.), mostrarlo
     if (customMessage) {
       return customMessage;
     }
 
-    // Mensajes estándar según código HTTP si no hubo mensaje específico
     switch (error.response.status) {
       case 400:
         return "Solicitud inválida o malformada. Verifique los datos ingresados.";
@@ -59,6 +101,8 @@ export function getApiError(error: unknown): string {
         return "Conflicto operativo: La operación entra en conflicto con el estado actual del recurso.";
       case 422:
         return "Los datos enviados no cumplen las reglas de negocio o validaciones clínicas.";
+      case 429:
+        return "Demasiados intentos realizados. Espere unos segundos antes de intentar nuevamente.";
       case 500:
         return "Error interno del servidor. Por favor comuníquese con soporte técnico o intente más tarde.";
       case 502:

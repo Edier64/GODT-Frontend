@@ -70,16 +70,25 @@ test("real API authentication smoke test", { skip: process.env.GODT_RUN_REAL_API
   assert.equal(response.status, 401, "unauthenticated donor access must be rejected");
 });
 
-test("frontend enforces authenticated navigation and expires sessions on 401", async () => {
-  const [router, api, docs] = await Promise.all([
+test("frontend enforces authenticated navigation, memory-only JWT and single-flight refresh on 401", async () => {
+  const [router, api, authStore, accessView, docs] = await Promise.all([
     source("router.ts"),
     source("services/api.ts"),
+    source("stores/auth.ts"),
+    source("views/AccessView.vue"),
     source("services/documents.ts")
   ]);
   assert.match(router, /beforeEach/);
-  assert.match(router, /godt\.jwtToken/);
-  assert.match(api, /status === 401/);
-  assert.match(api, /session-expired/);
+  assert.match(router, /initializeSession/);
+  assert.match(router, /isAuthenticated/);
+  assert.doesNotMatch(router, /localStorage/);
+  assert.doesNotMatch(authStore, /localStorage|sessionStorage/);
+  assert.doesNotMatch(api, /localStorage|sessionStorage/);
+  assert.match(api, /withCredentials:\s*true/);
+  assert.match(api, /status !== 401|status === 401/);
+  assert.match(api, /requestSingleFlightRefresh/);
+  assert.match(await source("services/authSessionBridge.ts"), /session-expired/);
+  assert.doesNotMatch(accessView, /manualToken|coordinador@godt\.gov\.co|admin@godt\.gov\.co/);
   assert.match(docs, /setTimeout\(\(\) => URL\.revokeObjectURL/);
 });
 

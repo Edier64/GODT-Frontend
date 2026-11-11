@@ -8,6 +8,7 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "test:contracts": "node --test tests/contracts.test.mjs tests/dynamic-form.test.mjs",
+    "test:auth": "node --test tests/auth-flow.test.mjs",
     "test:e2e": "node --test tests/browser-workflow.test.mjs",
     "test:visual": "node --test tests/visual-regression.test.mjs"
   },
