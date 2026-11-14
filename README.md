@@ -10,7 +10,7 @@ Construida con **Vue 3 (Composition API)**, **TypeScript**, **Vite**, **Pinia**,
 
 - **Acceso Institucional y Sesiones (`/acceso`):**
   - Autenticación segura mediante correo institucional y contraseña (Argon2id en backend).
-  - Renovación transparente de tokens mediante *single-flight refresh* con cookies seguras `HttpOnly`.
+  - Renovación transparente de tokens mediante _single-flight refresh_ con cookies seguras `HttpOnly`.
   - Cierre de sesión y revocación en base de datos.
 - **Tablero Operativo (`/dashboard`):**
   - Métricas reales de donantes en valoración, activos y cerrados.
@@ -61,8 +61,8 @@ src/
 El cliente HTTP ([src/services/api.ts](./src/services/api.ts)) está configurado con `withCredentials: true` para transmitir y recibir la cookie `HttpOnly` del refresh token:
 
 ```
-Navegador (Vue SPA :5173) 
-   │  
+Navegador (Vue SPA :5173)
+   │
    ├── [Ruta /api/v1/*] ──► Proxy de Vite (Dev) / Nginx (Prod) ──► NestJS Backend (:3000)
    │                           (Reenvía cookies y añade cabeceras)
    └── [Intercepción 401] ─► POST /api/v1/auth/refresh ──► Obtiene nuevo Access Token en memoria
@@ -135,15 +135,15 @@ El servidor Vite iniciará en **`http://localhost:5173`**.
 
 ## 6. Scripts Disponibles en `package.json`
 
-| Script | Descripción |
-|---|---|
-| `npm run dev` | Inicia el servidor de desarrollo Vite con HMR en el puerto `5173`. |
-| `npm run build` | Valida tipos con `vue-tsc --noEmit` y genera el bundle estático de producción en `dist/`. |
-| `npm run preview` | Previsualiza localmente la compilación de producción en el puerto `5173`. |
-| `npm run test:contracts` | Ejecuta pruebas automáticas de validación de esquemas y contratos de API. |
-| `npm run test:auth` | Ejecuta la suite de pruebas del flujo de autenticación y renovación de tokens. |
-| `npm run test:e2e` | Ejecuta flujos de prueba de extremo a extremo. |
-| `npm run test:visual` | Pruebas de consistencia y componentes de interfaz. |
+| Script                   | Descripción                                                                               |
+| ------------------------ | ----------------------------------------------------------------------------------------- |
+| `npm run dev`            | Inicia el servidor de desarrollo Vite con HMR en el puerto `5173`.                        |
+| `npm run build`          | Valida tipos con `vue-tsc --noEmit` y genera el bundle estático de producción en `dist/`. |
+| `npm run preview`        | Previsualiza localmente la compilación de producción en el puerto `5173`.                 |
+| `npm run test:contracts` | Ejecuta pruebas automáticas de validación de esquemas y contratos de API.                 |
+| `npm run test:auth`      | Ejecuta la suite de pruebas del flujo de autenticación y renovación de tokens.            |
+| `npm run test:e2e`       | Ejecuta flujos de prueba de extremo a extremo.                                            |
+| `npm run test:visual`    | Pruebas de consistencia y componentes de interfaz.                                        |
 
 ---
 
@@ -152,16 +152,18 @@ El servidor Vite iniciará en **`http://localhost:5173`**.
 Para entornos productivos y despliegue en la nube (Azure Container Apps / Docker Compose):
 
 ### Arquitectura de la Imagen Gateway ([Dockerfile](./Dockerfile))
+
 La compilación utiliza una imagen multi-stage:
+
 1. **Etapa 1 (Builder):** Compila los activos de Vue 3 con `npm run build` usando `VITE_API_BASE_URL=/api/v1`.
 2. **Etapa 2 (Nginx Gateway):** Empaqueta los archivos estáticos en `nginx:1.27-alpine` y configura [docker/nginx.conf](./docker/nginx.conf) como plantilla de reverse proxy.
 
 ### Variables de Entorno del Gateway en Producción
 
-| Variable | Descripción | Ejemplo Local | Ejemplo Azure ACA |
-|---|---|---|---|
-| `API_UPSTREAM` | URL de destino del backend NestJS | `http://godt-api:3000` | `https://<fqdn-interno-de-godt-api>` |
-| `API_HOST_HEADER` | Cabecera Host enviada al backend | `$http_host` | `<fqdn-interno-de-godt-api>` |
-| `NGINX_ENTRYPOINT_LOCAL_RESOLVERS` | Habilita DNS dinámico de Nginx | `1` | `1` |
+| Variable                           | Descripción                       | Ejemplo Local          | Ejemplo Azure ACA                    |
+| ---------------------------------- | --------------------------------- | ---------------------- | ------------------------------------ |
+| `API_UPSTREAM`                     | URL de destino del backend NestJS | `http://godt-api:3000` | `https://<fqdn-interno-de-godt-api>` |
+| `API_HOST_HEADER`                  | Cabecera Host enviada al backend  | `$http_host`           | `<fqdn-interno-de-godt-api>`         |
+| `NGINX_ENTRYPOINT_LOCAL_RESOLVERS` | Habilita DNS dinámico de Nginx    | `1`                    | `1`                                  |
 
 El contenedor del gateway expone el puerto `80` y cuenta con un endpoint propio de salud en `GET /health` que responde `200 ok`.
