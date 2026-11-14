@@ -167,3 +167,9 @@ La compilación utiliza una imagen multi-stage:
 | `NGINX_ENTRYPOINT_LOCAL_RESOLVERS` | Habilita DNS dinámico de Nginx    | `1`                    | `1`                                  |
 
 El contenedor del gateway expone el puerto `80` y cuenta con un endpoint propio de salud en `GET /health` que responde `200 ok`.
+
+---
+
+## 6. Documentación del repositorio
+
+Consulte el [índice de documentación](./docs/README.md) para acceder a arquitectura, requisitos, informes de auditoría y documentos históricos de Sprint.
