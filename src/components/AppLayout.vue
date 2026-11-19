@@ -38,7 +38,7 @@ onBeforeUnmount(() => window.removeEventListener("godt:session-expired", handleS
 
 <template>
   <div class="min-h-screen bg-[#f5f7fa] lg:flex">
-    <aside class="flex w-full flex-col bg-[#123047] text-white lg:min-h-screen lg:w-[248px]">
+    <aside class="flex w-full flex-col bg-[#123047] text-white lg:sticky lg:top-0 lg:h-screen lg:w-[248px] lg:overflow-y-auto">
       <div class="border-b border-white/10 px-6 py-7">
         <div class="flex items-center gap-3">
           <div class="grid h-9 w-9 place-items-center rounded-lg border border-[#159c9a]/60 text-sm font-bold text-[#5ed1c8]">G</div>
@@ -49,11 +49,17 @@ onBeforeUnmount(() => window.removeEventListener("godt:session-expired", handleS
         <p class="px-4 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/35">Workspace</p>
         <RouterLink active-class="bg-[#1e5575] text-white shadow-sm" class="focus-ring block rounded-lg px-4 py-3 text-sm text-white/65 transition hover:bg-white/10 hover:text-white" to="/dashboard">Resumen</RouterLink>
         <RouterLink active-class="bg-[#1e5575] text-white shadow-sm" class="focus-ring block rounded-lg px-4 py-3 text-sm text-white/65 transition hover:bg-white/10 hover:text-white" to="/procesos">Procesos de Donación</RouterLink>
-        <RouterLink active-class="bg-[#1e5575] text-white shadow-sm" class="focus-ring block rounded-lg px-4 py-3 text-sm text-white/65 transition hover:bg-white/10 hover:text-white" to="/expedientes">Expedientes</RouterLink>
+        <RouterLink active-class="bg-[#1e5575] text-white shadow-sm" class="focus-ring block rounded-lg px-4 py-3 text-sm text-white/65 transition hover:bg-white/10 hover:text-white" to="/expedientes">Expedientes de Donantes</RouterLink>
         <RouterLink active-class="bg-[#1e5575] text-white shadow-sm" class="focus-ring block rounded-lg px-4 py-3 text-sm text-white/65 transition hover:bg-white/10 hover:text-white" to="/catalogo-documental">Catálogo documental</RouterLink>
-        <RouterLink active-class="bg-[#1e5575] text-white shadow-sm" class="focus-ring block rounded-lg px-4 py-3 text-sm text-white/65 transition hover:bg-white/10 hover:text-white" to="/expedientes">Documentación clínica</RouterLink>
-        <RouterLink active-class="bg-[#1e5575] text-white shadow-sm" class="focus-ring block rounded-lg px-4 py-3 text-sm text-white/65 transition hover:bg-white/10 hover:text-white" to="/expedientes">OCR y validación</RouterLink>
-        <RouterLink active-class="bg-[#1e5575] text-white shadow-sm" class="focus-ring block rounded-lg px-4 py-3 text-sm text-white/65 transition hover:bg-white/10 hover:text-white" to="/expedientes">Legalización</RouterLink>
+
+        <div class="hidden lg:block pt-4 pb-2 border-t border-white/10 mt-3">
+          <p class="px-4 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-white/35">Flujos Operativos</p>
+          <div class="px-4 space-y-2 text-[11px] text-white/50 leading-relaxed">
+            <p>• Documentación clínica y OCR se gestionan dentro de cada expediente.</p>
+            <p>• Legalización y firmas electrónicas se activan en la fase de consentimiento.</p>
+          </div>
+        </div>
+
         <span aria-disabled="true" class="block rounded-lg px-4 py-3 text-sm text-white/30">Reportes no disponibles</span>
       </nav>
       <div class="mt-auto hidden border-t border-white/10 p-4 lg:block space-y-2">

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import DynamicField from "../components/DynamicField.vue";
 import PdfViewerModal from "../components/PdfViewerModal.vue";
 import DocumentSignatureModal from "../components/DocumentSignatureModal.vue";
@@ -28,8 +28,23 @@ import type {
 } from "../types/document-lifecycle";
 
 const route = useRoute();
+const router = useRouter();
 const donorId = String(route.params.donorId);
 const instanceId = String(route.params.instanceId);
+
+function handleGoBack() {
+  if (route.query.from && typeof route.query.from === "string") {
+    void router.push(route.query.from);
+  } else if (route.query.processId) {
+    void router.push(`/procesos/${route.query.processId}`);
+  } else if (instance.value?.processId) {
+    void router.push(`/procesos/${instance.value.processId}`);
+  } else if (donorId && donorId !== "undefined") {
+    void router.push(`/expedientes/${donorId}/instancias`);
+  } else {
+    void router.push("/expedientes");
+  }
+}
 const instance = ref<DocumentInstance | null>(null);
 const version = ref<TemplateVersion | null>(null);
 const loadError = ref("");
@@ -462,12 +477,14 @@ onMounted(load);
     </div>
 
     <!-- Navegación Superior -->
-    <RouterLink
-      class="text-xs font-semibold text-[#159c9a] hover:underline"
-      :to="`/expedientes/${donorId}/instancias`"
+    <button
+      type="button"
+      class="text-xs font-semibold text-[#159c9a] hover:underline cursor-pointer flex items-center gap-1.5 transition-colors"
+      @click="handleGoBack"
     >
-      ← Volver a instancias
-    </RouterLink>
+      <span>←</span>
+      <span>Volver a instancias del proceso / expediente</span>
+    </button>
 
     <!-- Encabezado de Instancia -->
     <div class="mt-5 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">

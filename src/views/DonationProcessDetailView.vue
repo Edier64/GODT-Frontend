@@ -130,6 +130,27 @@ const propagatingFieldId = ref<string | null>(null);
 const propagatedSuccessMap = ref<Record<string, boolean>>({});
 const propagatingAll = ref(false);
 
+// Filtros visuales de asistencia para revisión humana (HITL - sin confirmación automática)
+const ocrFilterMode = ref<"ALL" | "PENDING" | "CONFIRMED" | "HIGH_CONFIDENCE" | "LOW_CONFIDENCE">("ALL");
+
+const filteredOcrFields = computed(() => {
+  return extractedOcrFields.value.filter((f) => {
+    if (ocrFilterMode.value === "PENDING") return f.validationStatus === "PENDIENTE";
+    if (ocrFilterMode.value === "CONFIRMED") return f.validationStatus === "CONFIRMADO" || f.validationStatus === "MODIFICADO";
+    if (ocrFilterMode.value === "HIGH_CONFIDENCE") return Number(f.confidenceScore) >= 0.75;
+    if (ocrFilterMode.value === "LOW_CONFIDENCE") return Number(f.confidenceScore) < 0.75;
+    return true;
+  });
+});
+
+const ocrCounts = computed(() => ({
+  total: extractedOcrFields.value.length,
+  pending: extractedOcrFields.value.filter((f) => f.validationStatus === "PENDIENTE").length,
+  confirmed: extractedOcrFields.value.filter((f) => f.validationStatus === "CONFIRMADO" || f.validationStatus === "MODIFICADO").length,
+  high: extractedOcrFields.value.filter((f) => Number(f.confidenceScore) >= 0.75).length,
+  low: extractedOcrFields.value.filter((f) => Number(f.confidenceScore) < 0.75).length,
+}));
+
 // --- ESTADO FASE E: EXPEDIENTE CONSOLIDADO ---
 const dossierExports = ref<ProcessDossierExport[]>([]);
 const loadingDossier = ref(false);
@@ -632,6 +653,8 @@ async function handlePropagateAllConfirmed() {
   if (!processId.value || !extractedOcrFields.value.length) return;
   propagatingAll.value = true;
   let successCount = 0;
+  let skippedCount = 0;
+  let failedCount = 0;
   try {
     const itemsToPropagate = extractedOcrFields.value
       .filter((f) => f.validationStatus === "CONFIRMADO" || f.validationStatus === "MODIFICADO")
@@ -641,28 +664,52 @@ async function handlePropagateAllConfirmed() {
         confirmedValue: f.confirmedValue || undefined,
       }));
 
+    if (itemsToPropagate.length === 0) {
+      alert(
+        "Por gobernanza clínica y seguridad médica (Ley 1805 / Resolución 2640), solo los campos revisados y explícitamente confirmados o modificados por el profesional de salud pueden propagarse al proceso.\n\nPor favor revise individualmente los campos candidatos pendientes y pulse 'Aceptar' o 'Editar' antes de propagar."
+      );
+      return;
+    }
+
     if (itemsToPropagate.length > 0) {
       try {
-        const results = await ocrService.batchPropagateToProcess(processId.value, itemsToPropagate);
+        const resp: any = await ocrService.batchPropagateToProcess(processId.value, itemsToPropagate);
+        const results = resp?.results || (Array.isArray(resp) ? resp : []);
+        successCount = resp?.propagatedCount ?? 0;
+        skippedCount = resp?.skippedCount ?? 0;
+        failedCount = resp?.failedCount ?? 0;
+
         for (const res of results) {
-          propagatedSuccessMap.value[res.fieldId] = true;
-          successCount++;
+          if (res.status === "PROPAGADO" || res.status === "OMITIDO" || res.status === "CONFIRMADO") {
+            propagatedSuccessMap.value[res.fieldId] = true;
+            if (!resp.propagatedCount && res.status !== "OMITIDO") successCount++;
+          }
         }
       } catch {
-        // Fallback campo por campo si el batch falla
+        // Fallback campo por campo si la API batch falla
         for (const item of itemsToPropagate) {
           try {
             await ocrService.propagateToProcess(processId.value, item.fieldId);
             propagatedSuccessMap.value[item.fieldId] = true;
             successCount++;
-          } catch {}
+          } catch {
+            failedCount++;
+          }
         }
       }
     }
 
     await loadCanonical();
     await loadDocuments(processId.value);
-    alert(`Se propagaron exitosamente ${successCount} campo(s) al diccionario canónico y formularios del proceso.`);
+
+    let summary = `Resultado de la propagación al proceso:\n\n• ${successCount} campo(s) propagados exitosamente al diccionario canónico y formularios.`;
+    if (skippedCount > 0) {
+      summary += `\n• ${skippedCount} campo(s) omitidos (ya registrados con valor idéntico).`;
+    }
+    if (failedCount > 0) {
+      summary += `\n• ${failedCount} campo(s) no pudieron propagarse por conflicto o error.`;
+    }
+    alert(summary);
   } finally {
     propagatingAll.value = false;
   }
@@ -2903,6 +2950,10 @@ function formatDate(iso?: string | null): string {
                   {{ verificationReport.correctFilesCount ?? verificationReport.passedCount }} / {{ verificationReport.totalFilesInspected ?? verificationReport.totalChecked }} archivos OK
                 </div>
               </div>
+
+              <div v-if="!filteredOcrFields.length" class="p-8 text-center text-xs text-slate-400 italic bg-white">
+                No hay campos candidatos que coincidan con el filtro seleccionado.
+              </div>
             </div>
 
             <!-- Desglose de Tres Niveles Criptográficos -->
@@ -2937,6 +2988,10 @@ function formatDate(iso?: string | null): string {
                 <div class="font-mono text-[10px] text-slate-500 truncate" :title="verificationReport.actualManifestDigest">
                   DIGEST: {{ verificationReport.actualManifestDigest || 'N/A' }}
                 </div>
+              </div>
+
+              <div v-if="!filteredOcrFields.length" class="p-8 text-center text-xs text-slate-400 italic bg-white">
+                No hay campos candidatos que coincidan con el filtro seleccionado.
               </div>
             </div>
 
@@ -3152,20 +3207,68 @@ function formatDate(iso?: string | null): string {
                 <p class="text-[11px] text-slate-400">Verifique cada campo antes de incorporarlo a los formularios oficiales.</p>
               </div>
 
+              <div class="flex items-center gap-2">
+                <button
+                  type="button"
+                  class="px-3.5 py-1.5 bg-[#123047] hover:bg-[#1e5575] text-white text-xs font-semibold rounded-lg shadow-xs transition cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
+                  :disabled="propagatingAll || ocrCounts.confirmed === 0"
+                  title="Propagar únicamente los campos revisados y confirmados o modificados por el profesional"
+                  @click="handlePropagateAllConfirmed"
+                >
+                  <span>🚀</span>
+                  {{ propagatingAll ? "Propagando..." : `Propagar Confirmados (${ocrCounts.confirmed})` }}
+                </button>
+              </div>
+            </div>
+
+            <!-- Barra de Filtros Visuales de Asistencia (HITL) -->
+            <div class="flex items-center gap-1.5 flex-wrap pb-1">
+              <span class="text-[11px] font-bold text-slate-500 mr-1">Filtrar para revisión:</span>
               <button
                 type="button"
-                class="px-3.5 py-1.5 bg-[#123047] hover:bg-[#1e5575] text-white text-xs font-semibold rounded-lg shadow-xs transition cursor-pointer disabled:opacity-50 inline-flex items-center gap-1.5"
-                :disabled="propagatingAll"
-                @click="handlePropagateAllConfirmed"
+                class="px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition"
+                :class="ocrFilterMode === 'ALL' ? 'bg-[#123047] text-white shadow-xs' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'"
+                @click="ocrFilterMode = 'ALL'"
               >
-                <span>🚀</span>
-                {{ propagatingAll ? "Propagando..." : "Propagar Confirmados al Proceso" }}
+                Todos ({{ ocrCounts.total }})
+              </button>
+              <button
+                type="button"
+                class="px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition"
+                :class="ocrFilterMode === 'PENDING' ? 'bg-amber-600 text-white shadow-xs' : 'bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200'"
+                @click="ocrFilterMode = 'PENDING'"
+              >
+                Pendientes ({{ ocrCounts.pending }})
+              </button>
+              <button
+                type="button"
+                class="px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition"
+                :class="ocrFilterMode === 'CONFIRMED' ? 'bg-emerald-600 text-white shadow-xs' : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200'"
+                @click="ocrFilterMode = 'CONFIRMED'"
+              >
+                Confirmados ({{ ocrCounts.confirmed }})
+              </button>
+              <button
+                type="button"
+                class="px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition"
+                :class="ocrFilterMode === 'HIGH_CONFIDENCE' ? 'bg-purple-700 text-white shadow-xs' : 'bg-purple-50 text-purple-800 hover:bg-purple-100 border border-purple-200'"
+                @click="ocrFilterMode = 'HIGH_CONFIDENCE'"
+              >
+                Confianza Alta ≥75% ({{ ocrCounts.high }})
+              </button>
+              <button
+                type="button"
+                class="px-2.5 py-1 rounded text-xs font-medium cursor-pointer transition"
+                :class="ocrFilterMode === 'LOW_CONFIDENCE' ? 'bg-slate-700 text-white shadow-xs' : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-300'"
+                @click="ocrFilterMode = 'LOW_CONFIDENCE'"
+              >
+                Revisión Prioritaria &lt;75% ({{ ocrCounts.low }})
               </button>
             </div>
 
             <div class="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden shadow-xs">
               <div
-                v-for="field in extractedOcrFields"
+                v-for="field in filteredOcrFields"
                 :key="field.id"
                 class="p-4 bg-white hover:bg-slate-50/60 transition flex flex-col md:flex-row md:items-center justify-between gap-4"
               >
@@ -3303,6 +3406,10 @@ function formatDate(iso?: string | null): string {
                     {{ propagatingFieldId === field.id ? "Propagando..." : propagatedSuccessMap[field.id] ? "✓ Propagado" : "Propagar" }}
                   </button>
                 </div>
+              </div>
+
+              <div v-if="!filteredOcrFields.length" class="p-8 text-center text-xs text-slate-400 italic bg-white">
+                No hay campos candidatos que coincidan con el filtro seleccionado.
               </div>
             </div>
           </div>
