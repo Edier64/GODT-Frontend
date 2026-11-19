@@ -32,9 +32,15 @@ const dependency = computed(() => dependencyForPath(props.dependencyConfig, prop
 const isVisible = computed(() => !dependency.value?.visibleWhen || evaluateDependency(dependency.value.visibleWhen, props.values ?? {}));
 const isDisabled = computed(() => isReadonly.value || Boolean(dependency.value?.enabledWhen && !evaluateDependency(dependency.value.enabledWhen, props.values ?? {})));
 const value = computed({
-  get: () => props.schema.format === "date-time" && typeof props.modelValue === "string"
-    ? toDateTimeInput(props.modelValue)
-    : props.modelValue,
+  get: () => {
+    if (props.schema.format === "date-time" && typeof props.modelValue === "string") {
+      return toDateTimeInput(props.modelValue);
+    }
+    if (props.schema.format === "date" && typeof props.modelValue === "string") {
+      return toDateInput(props.modelValue);
+    }
+    return props.modelValue;
+  },
   set: (next: unknown) => emit("update:modelValue", coerce(next))
 });
 const textValue = computed<string>({
@@ -133,9 +139,22 @@ function coerce(next: unknown) {
     const date = new Date(next);
     return Number.isNaN(date.getTime()) ? next : date.toISOString();
   }
+  if (props.schema.format === "date" && typeof next === "string") {
+    if (!next) return props.schema.nullable ? null : "";
+    return next;
+  }
   if (isNumber.value && next !== "" && next !== null) return Number(next);
   if (isBoolean.value) return Boolean(next);
   return next;
+}
+function toDateInput(val: string): string {
+  if (!val) return "";
+  const match = val.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (match) return match[1];
+  const date = new Date(val);
+  if (Number.isNaN(date.getTime())) return val;
+  const pad = (part: number) => String(part).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 function childValue(key: string) { return (props.modelValue as Record<string, unknown> | null)?.[key]; }
 function setChild(key: string, next: unknown) { emit("update:modelValue", { ...((props.modelValue as Record<string, unknown> | null) ?? {}), [key]: next }); }
