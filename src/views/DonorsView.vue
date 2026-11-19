@@ -46,8 +46,22 @@ const { store, filters, form, formError, editing, showForm, totalPages, load, op
           <label class="text-sm font-semibold text-[#49636b]">IPS de origen<input v-model="form.originatingIpsName" class="focus-ring mt-2 w-full rounded-xl border border-[#cbdcdf] px-4 py-3 font-normal" required /></label>
           <label class="text-sm font-semibold text-[#49636b]">Servicio clínico<input v-model="form.clinicalService" class="focus-ring mt-2 w-full rounded-xl border border-[#cbdcdf] px-4 py-3 font-normal" required /></label>
           <label class="text-sm font-semibold text-[#49636b]">Estado<select v-model="form.status" class="focus-ring mt-2 w-full rounded-xl border border-[#cbdcdf] px-4 py-3 font-normal"><option value="EN_VALORACION">En valoración</option><option value="ACTIVO">Activo</option><option value="CERRADO">Cerrado</option></select></label>
-          <label class="text-sm font-semibold text-[#49636b]">Grupo sanguíneo<input v-model="form.bloodGroup" class="focus-ring mt-2 w-full rounded-xl border border-[#cbdcdf] px-4 py-3 font-normal" /></label>
-          <label class="text-sm font-semibold text-[#49636b]">Factor Rh<input v-model="form.rhFactor" class="focus-ring mt-2 w-full rounded-xl border border-[#cbdcdf] px-4 py-3 font-normal" /></label>
+          <label class="text-sm font-semibold text-[#49636b]">Grupo sanguíneo
+            <select v-model="form.bloodGroup" class="focus-ring mt-2 w-full rounded-xl border border-[#cbdcdf] bg-white px-4 py-3 font-normal">
+              <option value="">Selecciona grupo sanguíneo</option>
+              <option value="O">O</option>
+              <option value="A">A</option>
+              <option value="B">B</option>
+              <option value="AB">AB</option>
+            </select>
+          </label>
+          <label class="text-sm font-semibold text-[#49636b]">Factor Rh
+            <select v-model="form.rhFactor" class="focus-ring mt-2 w-full rounded-xl border border-[#cbdcdf] bg-white px-4 py-3 font-normal">
+              <option value="">Selecciona factor Rh</option>
+              <option value="+">Positivo (+)</option>
+              <option value="-">Negativo (-)</option>
+            </select>
+          </label>
         </div>
         <div class="mt-8 flex justify-end gap-3"><button type="button" class="focus-ring rounded-xl px-5 py-3 text-sm text-[#49636b]" @click="showForm = false">Cancelar</button><button class="focus-ring rounded-xl bg-[#123c4a] px-5 py-3 text-sm font-semibold text-white disabled:opacity-50" :disabled="store.loading">{{ store.loading ? "Guardando…" : "Guardar expediente" }}</button></div>
       </form>

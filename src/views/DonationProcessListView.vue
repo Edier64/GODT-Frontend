@@ -631,18 +631,24 @@ function formatDate(iso: string): string {
                 <div>
                   <label class="block text-xs font-medium text-slate-700 mb-1">Grupo y RH</label>
                   <div class="flex gap-1">
-                    <input
+                    <select
                       v-model="form.newDonor.bloodGroup"
-                      type="text"
-                      placeholder="O"
-                      class="w-1/2 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 text-center"
-                    />
-                    <input
+                      class="w-1/2 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-800"
+                    >
+                      <option value="">Grupo</option>
+                      <option value="O">O</option>
+                      <option value="A">A</option>
+                      <option value="B">B</option>
+                      <option value="AB">AB</option>
+                    </select>
+                    <select
                       v-model="form.newDonor.rhFactor"
-                      type="text"
-                      placeholder="+"
-                      class="w-1/2 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-800 text-center"
-                    />
+                      class="w-1/2 px-2 py-1.5 bg-white border border-slate-300 rounded-lg text-sm text-slate-800"
+                    >
+                      <option value="">RH</option>
+                      <option value="+">+</option>
+                      <option value="-">-</option>
+                    </select>
                   </div>
                 </div>
               </div>
