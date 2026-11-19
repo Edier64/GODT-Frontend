@@ -3185,8 +3185,34 @@ function formatDate(iso?: string | null): string {
                     >
                       {{ field.validationStatus }}
                     </span>
-                    <span class="text-[10px] text-slate-400 font-mono font-semibold">
+                    <!-- Motor de Extracción (Gemini AI vs Fallback) -->
+                    <span
+                      v-if="(field.boundingBox as any)?.engine === 'GEMINI_AI'"
+                      class="px-2 py-0.5 rounded text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-200 inline-flex items-center gap-1"
+                      title="Extraído mediante IA Multimodal Google Gemini"
+                    >
+                      <span>✨</span> Gemini AI
+                    </span>
+                    <span
+                      v-else-if="(field.boundingBox as any)?.engine === 'LOCAL_RULES_FALLBACK'"
+                      class="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 inline-flex items-center gap-1"
+                      title="Procesado mediante Reglas Locales (Fallback alternativo)"
+                    >
+                      <span>⚙️</span> Reglas Locales (Fallback)
+                    </span>
+                    <span
+                      v-else-if="(field.boundingBox as any)?.engine === 'LOCAL_OCR_FALLBACK'"
+                      class="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-700 border border-slate-200 inline-flex items-center gap-1"
+                      title="Procesado mediante OCR Local Tesseract"
+                    >
+                      <span>📄</span> OCR Local
+                    </span>
+
+                    <span class="text-[10px] font-mono font-semibold" :class="Number(field.confidenceScore) < 0.85 ? 'text-amber-700 font-bold' : 'text-slate-500'">
                       Confianza: {{ Math.round(Number(field.confidenceScore) * 100) }}%
+                    </span>
+                    <span v-if="Number(field.confidenceScore) < 0.85 && field.validationStatus === 'PENDIENTE'" class="px-1.5 py-0.5 bg-amber-50 text-amber-800 border border-amber-300 rounded text-[9px] font-bold">
+                      ⚠️ Valor dudoso
                     </span>
                     <span v-if="propagatedSuccessMap[field.id]" class="px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded text-[10px] font-bold">
                       ✓ Propagado al Diccionario
