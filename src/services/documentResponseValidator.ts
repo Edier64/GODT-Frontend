@@ -68,5 +68,7 @@ function validateNode(
   // Format validation
   if (schema.format === "date" && typeof value === "string" && !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     errors[path] = "Formato de fecha inválido (AAAA-MM-DD).";
+  } else if (schema.format === "time" && typeof value === "string" && value && !/^\d{2}:\d{2}(:\d{2})?$/.test(value)) {
+    errors[path] = "Formato de hora inválido (HH:MM).";
   }
 }

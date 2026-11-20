@@ -54,6 +54,7 @@ const isNumber = computed(() => type.value === "number" || type.value === "integ
 const inputType = computed(() => {
   if (props.schema.format === "date") return "date";
   if (props.schema.format === "date-time") return "datetime-local";
+  if (props.schema.format === "time") return "time";
   if (props.schema.format === "email") return "email";
   if (props.schema.format === "uri" || props.schema.format === "uri-reference") return "url";
   return isNumber.value ? "number" : "text";
@@ -91,18 +92,19 @@ const fieldProvenance = computed(() => {
 
 const isEntityField = computed(() => {
   if (props.ui?.component === "entity-autocomplete") return true;
+  if (props.ui?.component === "input" || props.ui?.component === "textarea") return false;
+  if (props.schema.enum || isBoolean.value || isNumber.value || isArray.value || isObject.value) return false;
   const path = normalizedPath.value.toLowerCase();
-  const title = (props.schema.title || "").toLowerCase();
-  const keywords = ["ips", "institucion", "hospital", "clinica", "servicio", "medico", "cirujano", "profesional", "cot"];
-  return keywords.some((k) => path.includes(k) || title.includes(k));
+  // Solo aplicar para campos institucionales específicos de IPS/entidad
+  const exactIpsFields = ["ipsgeneradora", "institucionred", "institucionremitente", "nombreips"];
+  return exactIpsFields.some((k) => path === k);
 });
 
 const entityFieldType = computed<"IPS" | "SERVICE" | "PROFESSIONAL">(() => {
   if (props.ui?.entityType) return props.ui.entityType as "IPS" | "SERVICE" | "PROFESSIONAL";
   const path = normalizedPath.value.toLowerCase();
-  const title = (props.schema.title || "").toLowerCase();
-  if (path.includes("servicio") || title.includes("servicio")) return "SERVICE";
-  if (path.includes("medico") || path.includes("cirujano") || path.includes("profesional") || path.includes("cot") || title.includes("médico") || title.includes("cirujano")) return "PROFESSIONAL";
+  if (path.includes("servicio")) return "SERVICE";
+  if (path.includes("medico") || path.includes("cirujano") || path.includes("profesional")) return "PROFESSIONAL";
   return "IPS";
 });
 
@@ -294,7 +296,31 @@ function readableName(path: string) {
     <span v-if="ui?.description || schema.description" class="mt-1 block text-xs font-normal text-[#789098]">{{ ui?.description || schema.description }}</span>
     <span v-if="ui?.help" class="mt-1 block text-xs font-normal text-[#789098]">{{ ui.help }}</span>
     <select v-if="schema.enum" v-model="value" class="focus-ring mt-2 w-full rounded-lg border border-[#cbdce2] px-3 py-3 text-sm font-normal transition-colors" :class="{ 'bg-slate-100/90 text-slate-600 cursor-not-allowed border-slate-300': isDisabled }" :disabled="isDisabled"><option v-if="nullable" :value="null">Sin valor</option><option v-else value="">Selecciona una opción</option><option v-for="option in schema.enum" :key="JSON.stringify(option)" :value="option">{{ formatOption(option) }}</option></select>
-    <input v-else-if="isBoolean" v-model="value" type="checkbox" class="focus-ring mt-3 h-4 w-4 rounded border-[#cbdce2]" :class="{ 'cursor-not-allowed opacity-60': isDisabled }" :disabled="isDisabled" />
+    <div v-else-if="isBoolean" class="mt-2 flex items-center gap-3">
+      <div class="inline-flex rounded-lg border border-[#cbdce2] p-1 bg-[#f8fafb]">
+        <button
+          type="button"
+          class="rounded-md px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer"
+          :class="value === true ? 'bg-[#159c9a] text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'"
+          :disabled="isDisabled"
+          @click="value = true"
+        >
+          SÍ
+        </button>
+        <button
+          type="button"
+          class="rounded-md px-3 py-1.5 text-xs font-semibold transition-all cursor-pointer"
+          :class="value === false ? 'bg-slate-700 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'"
+          :disabled="isDisabled"
+          @click="value = false"
+        >
+          NO
+        </button>
+      </div>
+      <span class="text-xs font-medium" :class="value ? 'text-[#159c9a] font-bold' : 'text-slate-500'">
+        {{ value ? 'Confirmado (SÍ)' : 'No aplica / Negativo (NO)' }}
+      </span>
+    </div>
     <textarea v-else-if="schema.format === 'textarea' || ui?.component === 'textarea'" v-model="textValue" class="focus-ring mt-2 min-h-24 w-full rounded-lg border border-[#cbdce2] p-3 text-sm font-normal transition-colors" :class="{ 'bg-slate-100/90 text-slate-600 cursor-not-allowed border-slate-300': isDisabled }" :readonly="isDisabled" />
     <div v-else-if="isEntityField" class="mt-2">
       <EntityAutocomplete
